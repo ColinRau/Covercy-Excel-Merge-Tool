@@ -7,6 +7,7 @@ import difflib
 import os
 from datetime import datetime, date, timedelta
 
+
 # Page config & branding
 st.set_page_config(
     page_title="Covercy‑Style Excel Merge",
@@ -148,23 +149,42 @@ def run_complete_flow():
     df_source['mapped_entity'] = df_source[src_ent].map(mapping)
 
     valid_dates = set(date_map.values())
-    dup_src = df_source[(df_source['mapped_entity']!="") & (df_source['parsed_date'].isin(valid_dates))]
-    dup_groups = dup_src.groupby(['mapped_entity','parsed_date'])[src_amt] \
-                        .apply(list).reset_index(name='amounts')
-    dups = dup_groups[dup_groups['amounts'].apply(len)>1]
+    dup_src = df_source[
+        (df_source['mapped_entity'] != "") &
+        (df_source['parsed_date'].isin(valid_dates))
+    ]
+    dup_groups = dup_src.groupby(
+        ['mapped_entity', 'parsed_date']
+    )[src_amt].apply(list).reset_index(name='amounts')
+    dups = dup_groups[dup_groups['amounts'].apply(len) > 1]
     chosen = {}
+
     if not dups.empty:
         st.subheader("Resolve Duplicate Amounts")
-        for _,row in dups.iterrows():
-            ent,dt,amts = row['mapped_entity'], row['parsed_date'], row['amounts']
-            key = f"dup_{ent}_{dt}"
-            opts = [str(a) for a in amts] + ['SUM']
-            if key not in st.session_state:
-                st.session_state[key] = opts[-1]
-            ch = st.radio(f"Select amount for {ent} on {dt}", opts, key=key)
-            chosen[(ent,dt)] = sum(amts) if ch=='SUM' else float(ch)
 
+        # — Sum All button —
+        if st.button("Sum All Duplicates"):
+            for _, row in dups.iterrows():
+                key = f"dup_{row['mapped_entity']}_{row['parsed_date']}"
+                st.session_state[key] = 'SUM'
+
+        # — Individual radios —
+        for _, row in dups.iterrows():
+            ent, dt, amts = row['mapped_entity'], row['parsed_date'], row['amounts']
+            key = f"dup_{ent}_{dt}"
+            options = [str(a) for a in amts] + ['SUM']
+            if key not in st.session_state:
+                st.session_state[key] = 'SUM'
+            # radio uses session_state[key] as its value
+            sel = st.radio(f"Select amount for {ent} on {dt}", options, key=key)
+            # read back from session_state so "Sum All" overrides persist
+            sel = st.session_state[key]
+            chosen[(ent, dt)] = sum(amts) if sel == 'SUM' else float(sel)
+
+    # 7. Finalize and write-back…
     if st.button("Finalize and Download Updated Target"):
+        # … your existing write-back logic …
+
         wb = load_workbook(filename=target_file)
         ws = wb[wb.sheetnames[0]]
         unmatched=[]
@@ -282,6 +302,16 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
     else:
         dates_to_use = []
 
+# ── Add enough 01-Jan-2040 placeholders so total ≥ len/0.56 ──
+    from math import ceil
+    N = len(dates_to_use)
+    required = ceil(N / 0.56)
+    extra = required - N
+    if extra > 0:
+        placeholder = date(2040, 1, 1)
+        dates_to_use.extend([placeholder] * extra)
+        st.info(f"Added {extra} placeholder period(s) dated {placeholder.strftime('%d %b %Y')} to meet the 56% rule.")
+
     # 7) Append blocks
     for idx,last_day in enumerate(dates_to_use):
         base = first_col + width*(idx+1)
@@ -321,7 +351,7 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
                     f"{get_column_letter(p)}{r})")
             ws.cell(row=r, column=n).value = expr
         r_gp = entity_rows[-1]
-        expr_gp = (f"=SUM({get_column_letter(n)}{r_gp},-"
+        expr_gp = (f"=SUM({get_column_letter(g)}{r_gp},-"
                   f"{get_column_letter(t)}{r_gp},"
                   f"{get_column_letter(a)}{r_gp})")
         ws.cell(row=r_gp, column=n).value = expr_gp
