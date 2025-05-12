@@ -252,7 +252,25 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
 
     # 2) Read & parse source dates
     df_src = pd.read_excel(source_file)
-    df_src['parsed_date'] = pd.to_datetime(df_src.iloc[:,1],errors='coerce').dt.date
+    st.subheader("Source Data Preview (Incomplete Flow)")
+    st.dataframe(df_src.head(5))
+
+    # Let the user pick which column holds the dates
+    inc_date_col = st.selectbox(
+        "Select Date column from source",
+        options=df_src.columns.tolist(),
+        key="inc_date_col"
+    )
+
+    # Parse dates using their choice
+    df_src['parsed_date'] = pd.to_datetime(
+        df_src[inc_date_col], errors='coerce'
+    ).dt.date
+
+    invalid = df_src['parsed_date'].isna().sum()
+    if invalid:
+        st.warning(f"{invalid} rows have unparseable dates and will be skipped.")
+
 
     # 3) Load target
     data = target_file.read()
@@ -271,17 +289,17 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
     hdr3 = [ws.cell(row=3, column=c).value for c in range(first_col, first_col+width)]
     hdr5 = [ws.cell(row=5, column=c).value for c in range(first_col, first_col+width)]
 
-    # 6) Build new date list
+    # 6) Build new-dates list
     existing = ws.cell(row=4, column=first_col+1).value
     uniq = df_src['parsed_date'].unique()
-    new_dates = sorted([d for d in uniq if pd.notna(d) and d!=existing])
+    new_dates = sorted([d for d in uniq if pd.notna(d) and d != existing])
 
     # Date selection UI
     st.subheader("Choose which dates to add:")
     date_strs = [d.strftime("%Y-%m-%d") for d in new_dates]
     if 'sel_dates' not in st.session_state:
         st.session_state['sel_dates'] = date_strs.copy()
-    c1,c2 = st.columns(2)
+    c1, c2 = st.columns(2)
     with c1:
         if st.button("Select All Dates"):
             st.session_state['sel_dates'] = date_strs.copy()
@@ -289,20 +307,39 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
         if st.button("Clear All Dates"):
             st.session_state['sel_dates'] = []
     selected = st.multiselect(
-        "Select dates:", options=date_strs,
-        default=st.session_state['sel_dates'], key='sel_dates',
+        "Select dates:",
+        options=date_strs,
+        default=date_strs,
+        key='sel_dates',
         format_func=lambda x: datetime.strptime(x, "%Y-%m-%d").strftime("%b %d, %Y")
     )
     st.markdown("---")
     st.write("**Or filter by date range:**")
     if new_dates:
-        start,end = st.date_input("Date range:", [new_dates[0], new_dates[-1]], key='date_range')
-        rng = [d for d in new_dates if start<=d<=end]
+        start, end = st.date_input("Date range:", [new_dates[0], new_dates[-1]], key='date_range')
+        rng = [d for d in new_dates if start <= d <= end]
         dates_to_use = sorted([d for d in rng if d.strftime("%Y-%m-%d") in selected])
     else:
         dates_to_use = []
 
-# ── Add enough 01-Jan-2040 placeholders so total ≥ len/0.56 ──
+    # — New: select which distribution type to apply to all blocks —
+    dist_options = [
+        "Preferred Return",
+        "Interest",
+        "Profit",
+        "Return of Capital",
+        "Principal",
+        "Promote",
+        "Catch Up",
+        "Available Cash (Profit)"
+    ]
+    dist_type = st.selectbox(
+        "Select Distribution Type for all new blocks",
+        options=dist_options,
+        index=0
+    )
+
+    # ── Add enough 01-Jan-2040 placeholders so total ≥ len/0.56 ──
     from math import ceil
     N = len(dates_to_use)
     required = ceil(N / 0.56)
@@ -329,7 +366,7 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
         full = f"{last_day.day} {last_day.strftime('%B')} {last_day.year}"
         ws.cell(row=4, column=base   ).value = full
         ws.cell(row=4, column=base+1 ).value = full
-        ws.cell(row=4, column=base+2 ).value = "Preferred Return"
+        ws.cell(row=4, column=base+2 ).value = dist_type
         ws.cell(row=4, column=base+3 ).value = "USD"
         # payment dates
         pay_col = base+5
