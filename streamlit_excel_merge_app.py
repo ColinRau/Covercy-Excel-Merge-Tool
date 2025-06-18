@@ -140,7 +140,12 @@ def run_complete_flow():
     edited = st.data_editor(
         map_df,
         column_config={
-            'target_entity': {'editable':True,'type':'dropdown','options':target_entities}
+            'target_entity': st.column_config.SelectboxColumn(
+                label="Target Entity",
+                help="Select the exact entity name from the target file.",
+                options=target_entities,
+                required=False,
+            )
         }, hide_index=True
     )
 
@@ -323,34 +328,105 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
         dates_to_use = []
 
     # — New: select which distribution type to apply to all blocks —
-    dist_options = [
-        "Preferred Return",
-        "Interest",
-        "Profit",
-        "Return of Capital",
-        "Principal",
-        "Promote",
-        "Catch Up",
-        "Available Cash (Profit)"
-    ]
-    dist_type = st.selectbox(
-        "Select Distribution Type for all new blocks",
-        options=dist_options,
-        index=0
+    st.subheader("Define Distribution Types")
+
+    type_handling = st.radio(
+        "How should distribution types be determined?",
+        ("Apply a single type to all new distributions", "Map types from a source column"),
+        index=0,
+        key="dist_type_handling"
     )
+
+    dist_options = [
+        "Preferred Return", "Interest", "Profit", "Return of Capital",
+        "Principal", "Promote", "Catch Up", "Available Cash (Profit)"
+    ]
+
+    dates_and_types_to_use = []
+
+    if type_handling == "Apply a single type to all new distributions":
+        dist_type = st.selectbox(
+            "Select Distribution Type for all new blocks",
+            options=dist_options,
+            index=0
+        )
+        # Use the already-filtered dates_to_use list
+        dates_and_types_to_use = [(d, dist_type) for d in dates_to_use]
+    else: # Map types from a source column
+        # Allow user to select the distribution type column
+        inc_dist_type_col = st.selectbox(
+            "Select Distribution Type column from source",
+            options=[c for c in df_src.columns if c not in [inc_date_col, 'parsed_date']],
+            key="inc_dist_type_col",
+            help="Select the column in your source file that specifies the distribution type for each row."
+        )
+
+        if inc_dist_type_col:
+            # Find unique types and set up the mapping editor
+            unique_src_types = df_src[inc_dist_type_col].dropna().astype(str).unique().tolist()
+            type_map_df = pd.DataFrame({'source_type': unique_src_types})
+
+            # Pre-fill with best guess, leaving unmatched blank
+            type_map_df['target_type'] = type_map_df['source_type'].apply(
+                lambda x: (difflib.get_close_matches(x, dist_options, n=1, cutoff=0.6) or [""])[0]
+            )
+
+            st.markdown("Map source distribution types to the target types:")
+            edited_type_map = st.data_editor(
+                type_map_df,
+                column_config={
+                    'source_type': {"help": "Distribution types found in your source file."},
+                    'target_type': st.column_config.SelectboxColumn(
+                        label="Target Type",
+                        help="Select the standardized Covercy distribution type.",
+                        options=[""] + dist_options,
+                        required=False,
+                    )
+                },
+                hide_index=True,
+                key="dist_type_mapper"
+            )
+
+            # Create mapping dictionary and apply it
+            type_mapping = dict(zip(edited_type_map['source_type'], edited_type_map['target_type']))
+            df_src['mapped_type'] = df_src[inc_dist_type_col].map(type_mapping)
+
+            # Filter source data to get the unique (date, type) pairs to generate
+            # Only consider rows that are within the user's selected date range (`dates_to_use`)
+            # And have a successfully mapped distribution type
+            
+            # Create a set of dates for faster lookup
+            dates_to_use_set = set(dates_to_use)
+            
+            # Filter the dataframe
+            relevant_rows = df_src[
+                df_src['parsed_date'].isin(dates_to_use_set) &
+                df_src['mapped_type'].notna() &
+                (df_src['mapped_type'] != "")
+            ].copy()
+
+            # Get unique (date, type) pairs from these rows
+            unique_pairs = relevant_rows[['parsed_date', 'mapped_type']].drop_duplicates()
+            
+            # Convert to a list of tuples and sort by date
+            dates_and_types_to_use = sorted(
+                [tuple(x) for x in unique_pairs.to_numpy()],
+                key=lambda x: x[0]
+            )
 
     # ── Add enough 01-Jan-2040 placeholders so total ≥ len/0.56 ──
     from math import ceil
-    N = len(dates_to_use)
+    N = len(dates_and_types_to_use)
     required = ceil(N / 0.56)
     extra = required - N
     if extra > 0:
-        placeholder = date(2040, 1, 1)
-        dates_to_use.extend([placeholder] * extra)
-        st.info(f"Added {extra} placeholder period(s) dated {placeholder.strftime('%d %b %Y')} to meet the 56% rule.")
+        placeholder_date = date(2040, 1, 1)
+        placeholder_type = "Preferred Return" # A sensible default
+        dates_and_types_to_use.extend([(placeholder_date, placeholder_type)] * extra)
+        st.info(f"Added {extra} placeholder period(s) dated {placeholder_date.strftime('%d %b %Y')} to meet the 56% rule.")
 
     # 7) Append blocks
-    for idx,last_day in enumerate(dates_to_use):
+    for idx, (last_day, dist_type) in enumerate(dates_and_types_to_use):
         base = first_col + width*(idx+1)
         # headers
         for r,vals in zip([1,3,5],[hdr1,hdr3,hdr5]):
