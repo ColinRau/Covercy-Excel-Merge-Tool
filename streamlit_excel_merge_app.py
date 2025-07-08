@@ -6,6 +6,9 @@ from openpyxl.utils import get_column_letter
 import difflib
 import os
 from datetime import datetime, date, timedelta
+import json
+import base64
+from math import ceil
 
 
 # Page config & branding
@@ -117,16 +120,34 @@ def run_complete_flow():
     # 4) Inspect target sheet layout
     df_raw = pd.read_excel(target_file, header=None)
     ent_col = 2
-    ent_label_row = df_raw[df_raw[ent_col]== 'Investing Entity'].index[0]
-    gp_row        = df_raw[df_raw[ent_col]== 'GP'].index[0]
-    ent_rows      = list(range(ent_label_row+1, gp_row))
-    target_entities = [str(df_raw.iat[r,ent_col]).strip() for r in ent_rows]
+    ent_label_row = df_raw[df_raw[ent_col] == 'Investing Entity'].index[0]
+    gp_row        = df_raw[df_raw[ent_col] == 'GP'].index[0]
+    ent_rows      = list(range(ent_label_row + 1, gp_row))
+    target_entities = [str(df_raw.iat[r, ent_col]).strip() for r in ent_rows]
 
-    date_label_row = ent_label_row - 2
+    # ---- Build (date, type) -> starting-column map ----
+    date_label_row = ent_label_row - 2  # row where the header text "Last Day" appears
     date_cols = [j for j in range(df_raw.shape[1])
-                 if str(df_raw.iat[date_label_row,j]).strip()== 'Last Day']
-    date_map = {j: pd.to_datetime(df_raw.iat[date_label_row+1,j], errors='coerce').date()
-                for j in date_cols}
+                 if str(df_raw.iat[date_label_row, j]).strip() == 'Last Day']
+
+    date_type_map = {}
+    for j in date_cols:
+        # date is the value one row below the header (row date_label_row+1)
+        dist_date = pd.to_datetime(df_raw.iat[date_label_row + 1, j], errors='coerce').date()
+
+        # primary location of type: global row 3 (Excel row 4) two columns to the right
+        try:
+            # Type label is one column to the right of "Last Day" header
+            dist_type_raw = str(df_raw.iat[date_label_row + 1, j + 1]).strip()
+        except IndexError:
+            dist_type_raw = ""
+
+        # fallback – if still empty, look two columns right (legacy layout)
+        if dist_type_raw == "" or dist_type_raw == "-":
+            dist_type_raw = str(df_raw.iat[date_label_row + 1, j + 2]).strip()
+
+        dist_type = dist_type_raw or ""
+        date_type_map[(dist_date, dist_type)] = j
 
     # 5) Entity mapping UI
     unique_src = df_source[src_ent].dropna().astype(str).unique().tolist()
@@ -149,17 +170,142 @@ def run_complete_flow():
         }, hide_index=True
     )
 
-    # 6) Duplicate resolution
+    # 5.5) Distribution-type handling --------------------------------------
+    st.subheader("Distribution Type Handling")
+
+    type_mode = st.radio(
+        "Choose how distribution types should be treated:",
+        ("Ignore distribution types (single-type)", "Match distribution types (multi-type)"),
+        index=1,
+        key="comp_type_mode"
+    )
+
+    ignore_types = type_mode.startswith("Ignore")
+
+    dist_options = [
+        "Preferred Return", "Interest", "Profit", "Return of Capital",
+        "Principal", "Promote", "Catch Up", "Available Cash (Profit)"
+    ]
+
+    if ignore_types:
+        # --- Single-type mode: collapse everything to blank type -------------
+        df_source['mapped_type'] = ""
+
+        # Collapse the (date, type) ➜ col map so keys become (date, "")
+        collapsed_map = {}
+        for (d, t), col_idx in date_type_map.items():
+            if (d, "") not in collapsed_map:
+                collapsed_map[(d, "")] = col_idx  # keep first block for that date
+        date_type_map = collapsed_map
+
+        st.info("Distribution types will be ignored; amounts will be matched only by entity and date.")
+
+    else:
+        # --- Multi-type mode (existing behaviour) ---------------------------
+        type_cols = [c for c in cols if c not in [src_ent, src_dt, src_amt]]
+        type_cols_display = ["<No type column>"] + type_cols
+
+        chosen_type_col = st.selectbox(
+            "Select Distribution Type column from source (leave as '<No type column>' if none)",
+            options=type_cols_display,
+            key="comp_dist_type_col"
+        )
+
+        # --- Allow user to paste or select a recent token -------------
+        saved_tokens = st.session_state.get("token_history", [])
+
+        # Auto-fill newest token into the input box (only on first load)
+        if saved_tokens and "comp_mapping_token" not in st.session_state:
+            st.session_state["comp_mapping_token"] = saved_tokens[-1]
+
+        token_input = st.text_input(
+            "Paste Mapping Token from Incomplete flow (optional)",
+            key="comp_mapping_token",
+        )
+
+        # Build dropdown where newest token is clearly labelled
+        token_options = [""] + list(reversed(saved_tokens))
+
+        def _tok_label(tok: str) -> str:
+            if tok == "":
+                return ""
+            if saved_tokens and tok == saved_tokens[-1]:
+                return "★ Newest"
+            # position among older tokens (2,3,…)
+            idx = list(reversed(saved_tokens)).index(tok)  # 0-based
+            return f"Token {idx+1}"
+
+        token_select = st.selectbox(
+            "Or choose a recent token",
+            token_options,
+            format_func=_tok_label,
+            key="comp_mapping_token_select",
+        )
+
+        # Show older tokens in a collapsible expander for reference
+        if len(saved_tokens) > 1:
+            with st.expander("Older tokens"):
+                for tok in reversed(saved_tokens[:-1]):
+                    st.code(tok, language="")
+
+        chosen_token = token_select or token_input.strip()
+
+        mapping_from_token = {}
+        if chosen_token:
+            try:
+                decoded = base64.urlsafe_b64decode(chosen_token.encode()).decode()
+                mapping_from_token = json.loads(decoded)
+                st.success("Mapping token applied.")
+            except Exception:
+                st.warning("Invalid mapping token – ignoring.")
+
+        if chosen_type_col == "<No type column>":
+            df_source['mapped_type'] = ""
+        else:
+            if mapping_from_token:
+                # Use mapping from token, fill missing with blank
+                type_mapping = mapping_from_token
+                df_source['mapped_type'] = df_source[chosen_type_col].map(type_mapping).fillna("")
+            else:
+                # Show editor as before
+                unique_src_types = df_source[chosen_type_col].dropna().astype(str).unique().tolist()
+                type_df = pd.DataFrame({'source_type': unique_src_types})
+                type_df['target_type'] = type_df['source_type'].apply(
+                    lambda x: (difflib.get_close_matches(x, dist_options, n=1, cutoff=0.6) or [""])[0]
+                )
+
+                st.markdown("Map source distribution types to Covercy types:")
+                edited_type_df = st.data_editor(
+                    type_df,
+                    column_config={
+                        'source_type': {"help": "Values detected in the source file."},
+                        'target_type': st.column_config.SelectboxColumn(
+                            label="Target Type",
+                            help="Standard Covercy type to map to.",
+                            options=[""] + dist_options,
+                            required=False,
+                        ),
+                    },
+                    hide_index=True,
+                    key="comp_dist_type_mapper"
+                )
+
+                type_mapping = dict(zip(edited_type_df['source_type'], edited_type_df['target_type']))
+                df_source['mapped_type'] = df_source[chosen_type_col].map(type_mapping).fillna("")
+
+    # 6) Duplicate resolution ------------------------------------------------
     mapping = dict(zip(edited['source_entity'], edited['target_entity']))
     df_source['mapped_entity'] = df_source[src_ent].map(mapping)
 
-    valid_dates = set(date_map.values())
+    valid_pairs = set(date_type_map.keys())  # (date, type) pairs present in template
+
     dup_src = df_source[
         (df_source['mapped_entity'] != "") &
-        (df_source['parsed_date'].isin(valid_dates))
+        df_source.apply(lambda row: (row['parsed_date'], row['mapped_type']) in valid_pairs, axis=1)
     ]
+
     dup_groups = dup_src.groupby(
-        ['mapped_entity', 'parsed_date']
+        ['mapped_entity', 'parsed_date', 'mapped_type']
     )[src_amt].apply(list).reset_index(name='amounts')
     dups = dup_groups[dup_groups['amounts'].apply(len) > 1]
     chosen = {}
@@ -170,21 +316,21 @@ def run_complete_flow():
         # — Sum All button —
         if st.button("Sum All Duplicates"):
             for _, row in dups.iterrows():
-                key = f"dup_{row['mapped_entity']}_{row['parsed_date']}"
+                key = f"dup_{row['mapped_entity']}_{row['parsed_date']}_{row['mapped_type']}"
                 st.session_state[key] = 'SUM'
 
         # — Individual radios —
         for _, row in dups.iterrows():
-            ent, dt, amts = row['mapped_entity'], row['parsed_date'], row['amounts']
-            key = f"dup_{ent}_{dt}"
+            ent, dt, typ, amts = row['mapped_entity'], row['parsed_date'], row['mapped_type'], row['amounts']
+            key = f"dup_{ent}_{dt}_{typ}"
             options = [str(a) for a in amts] + ['SUM']
             if key not in st.session_state:
                 st.session_state[key] = 'SUM'
             # radio uses session_state[key] as its value
-            sel = st.radio(f"Select amount for {ent} on {dt}", options, key=key)
+            sel = st.radio(f"Select amount for {ent} on {dt} ({typ})", options, key=key)
             # read back from session_state so "Sum All" overrides persist
             sel = st.session_state[key]
-            chosen[(ent, dt)] = sum(amts) if sel == 'SUM' else float(sel)
+            chosen[(ent, dt, typ)] = sum(amts) if sel == 'SUM' else float(sel)
 
     # 7. Finalize and write-back…
     if st.button("Finalize and Download Updated Target"):
@@ -194,14 +340,21 @@ def run_complete_flow():
         ws = wb[wb.sheetnames[0]]
         unmatched=[]
         for r,ent in zip(ent_rows, target_entities):
-            for col_idx,dist_date in date_map.items():
-                if pd.isna(dist_date): continue
-                m = df_source[(df_source['mapped_entity']==ent)&(df_source['parsed_date']==dist_date)]
+            for (dist_date, dist_type), col_idx in date_type_map.items():
+                if pd.isna(dist_date):
+                    continue
+                m = df_source[
+                    (df_source['mapped_entity'] == ent) &
+                    (df_source['parsed_date'] == dist_date) &
+                    (df_source['mapped_type'] == dist_type)
+                ]
                 if not m.empty:
-                    amt = chosen.get((ent,dist_date), m[src_amt].iloc[0])
-                    ws.cell(row=r+1, column=col_idx).value = amt
+                    amt = chosen.get((ent, dist_date, dist_type), m[src_amt].iloc[0])
+                    # col_idx is 0-based index of "Last Day" column; Gross column is one left.
+                    # openpyxl expects 1-based indices, so we write to column=col_idx
+                    ws.cell(row=r + 1, column=col_idx).value = amt
                 else:
-                    unmatched.append((ent,dist_date))
+                    unmatched.append((ent, dist_date, dist_type))
         buf=io.BytesIO(); wb.save(buf); buf.seek(0)
         st.success("Updated target workbook successfully!")
         st.download_button(
@@ -391,41 +544,50 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
             type_mapping = dict(zip(edited_type_map['source_type'], edited_type_map['target_type']))
             df_src['mapped_type'] = df_src[inc_dist_type_col].map(type_mapping)
 
-            # Filter source data to get the unique (date, type) pairs to generate
-            # Only consider rows that are within the user's selected date range (`dates_to_use`)
-            # And have a successfully mapped distribution type
-            
-            # Create a set of dates for faster lookup
-            dates_to_use_set = set(dates_to_use)
-            
-            # Filter the dataframe
-            relevant_rows = df_src[
-                df_src['parsed_date'].isin(dates_to_use_set) &
-                df_src['mapped_type'].notna() &
-                (df_src['mapped_type'] != "")
-            ].copy()
-
-            # Get unique (date, type) pairs from these rows
-            unique_pairs = relevant_rows[['parsed_date', 'mapped_type']].drop_duplicates()
-            
-            # Convert to a list of tuples and sort by date
-            dates_and_types_to_use = sorted(
-                [tuple(x) for x in unique_pairs.to_numpy()],
-                key=lambda x: x[0]
+            # --- Show reusable mapping token -------------------------------
+            mapping_token = base64.urlsafe_b64encode(json.dumps(type_mapping).encode()).decode()
+            st.text_area(
+                "Distribution-Type Mapping Token (copy for Complete flow)",
+                mapping_token,
+                height=80,
             )
 
-    # ── Add enough 01-Jan-2040 placeholders so total ≥ len/0.56 ──
-    from math import ceil
-    N = len(dates_and_types_to_use)
-    required = ceil(N / 0.56)
-    extra = required - N
-    if extra > 0:
-        placeholder_date = date(2040, 1, 1)
-        placeholder_type = "Preferred Return" # A sensible default
-        dates_and_types_to_use.extend([(placeholder_date, placeholder_type)] * extra)
-        st.info(f"Added {extra} placeholder period(s) dated {placeholder_date.strftime('%d %b %Y')} to meet the 56% rule.")
+            # ---- Remember the token in session_state --------------------
+            hist = st.session_state.get("token_history", [])
+            hist.append(mapping_token)
+            st.session_state["token_history"] = hist[-10:]
 
-    # 7) Append blocks
+            # ---- Display recent tokens for convenience -----------------
+            if st.session_state["token_history"]:
+                st.markdown("### Recent Mapping Tokens (this browser tab)")
+                for tok in reversed(st.session_state["token_history"]):
+                    st.code(tok, language="")
+
+            # --------------------------------------------------------------
+            # Build list of unique (date, type) pairs requested
+            dates_to_use_set = set(dates_to_use)
+            relevant_rows = df_src[
+                df_src['parsed_date'].isin(dates_to_use_set)
+                & df_src['mapped_type'].notna()
+                & (df_src['mapped_type'] != "")
+            ]
+            unique_pairs = relevant_rows[['parsed_date', 'mapped_type']].drop_duplicates()
+            dates_and_types_to_use = sorted(
+                [tuple(x) for x in unique_pairs.to_numpy()],
+                key=lambda x: x[0],
+            )
+
+    # ── Ensure 56% rule placeholders -------------------------------------
+    total_needed = ceil(len(dates_and_types_to_use) / 0.56)
+    extra_needed = total_needed - len(dates_and_types_to_use)
+    if extra_needed > 0:
+        placeholder_date = date(2040, 1, 1)
+        placeholder_type = "Preferred Return"
+        dates_and_types_to_use.extend([(placeholder_date, placeholder_type)] * extra_needed)
+        st.info(
+            f"Added {extra_needed} placeholder period(s) dated {placeholder_date.strftime('%d %b %Y')} to meet the 56% rule.")
+
+    # 8) Append blocks
     for idx, (last_day, dist_type) in enumerate(dates_and_types_to_use):
         base = first_col + width*(idx+1)
         # headers
@@ -469,7 +631,7 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
                   f"{get_column_letter(a)}{r_gp})")
         ws.cell(row=r_gp, column=n).value = expr_gp
 
-    # 8) Download
+    # 9) Download
     buf=io.BytesIO(); wb.save(buf); buf.seek(0)
     st.download_button("Download Populated Template", data=buf,
                        file_name="populated_incomplete_filtered.xlsx",
