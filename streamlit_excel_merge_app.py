@@ -13,111 +13,410 @@ from math import ceil
 
 # Page config & branding
 st.set_page_config(
-    page_title="Covercy‑Style Excel Merge",
+    page_title="Covercy Excel Merge Tool",
     page_icon="logo.png",
     layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for Covercy style
+# Custom CSS for Covercy branding
 st.markdown(
     """
     <style>
-      body { background-color: #ffffff; }
-      .stButton>button {
-        background-color: #FBBF24;
-        color: #111827;
-        border-radius: 0.5rem;
-        padding: 0.6rem 1.2rem;
-      }
-      h1, h2, h3 { font-family: 'Helvetica Neue', Arial, sans-serif; }
+    /* Main styles */
+    .main { 
+        padding: 0;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Typography */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    /* Headers */
+    h1 {
+        color: #0A2540;
+        font-weight: 700;
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    h2 {
+        color: #0A2540;
+        font-weight: 600;
+        font-size: 1.75rem;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+    }
+    
+    h3 {
+        color: #0A2540;
+        font-weight: 600;
+        font-size: 1.25rem;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background-color: #5B5BFF;
+        color: white;
+        border: none;
+        padding: 0.75rem 2rem;
+        font-weight: 500;
+        font-size: 1rem;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 4px rgba(91, 91, 255, 0.2);
+    }
+    
+    .stButton > button:hover {
+        background-color: #4B4BEF;
+        box-shadow: 0 4px 8px rgba(91, 91, 255, 0.3);
+        transform: translateY(-1px);
+    }
+    
+    /* Download button special styling */
+    .stDownloadButton > button {
+        background-color: #10B981;
+        color: white;
+        border: none;
+        padding: 0.75rem 2rem;
+        font-weight: 500;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+    }
+    
+    .stDownloadButton > button:hover {
+        background-color: #059669;
+        transform: translateY(-1px);
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+        background-color: transparent;
+        border-bottom: 2px solid #E5E7EB;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 3rem;
+        background-color: transparent;
+        border: none;
+        color: #6B7280;
+        font-weight: 500;
+        font-size: 1.1rem;
+        padding: 0 1rem;
+        border-radius: 0;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #0A2540;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: transparent;
+        color: #5B5BFF;
+        border-bottom: 3px solid #5B5BFF;
+        font-weight: 600;
+    }
+    
+    /* File uploader */
+    .uploadedFile {
+        background-color: #F9FAFB;
+        border: 2px solid #E5E7EB;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    
+    [data-testid="stFileUploader"] {
+        background-color: #F9FAFB;
+        border: 2px dashed #D1D5DB;
+        border-radius: 12px;
+        padding: 2rem;
+        transition: all 0.2s ease;
+    }
+    
+    [data-testid="stFileUploader"]:hover {
+        border-color: #5B5BFF;
+        background-color: #F5F5FF;
+    }
+    
+    /* Select boxes */
+    .stSelectbox > div > div {
+        background-color: white;
+        border: 1px solid #D1D5DB;
+        border-radius: 8px;
+    }
+    
+    .stSelectbox > div > div:hover {
+        border-color: #5B5BFF;
+    }
+    
+    /* Data editor */
+    .stDataFrame {
+        border: 1px solid #E5E7EB;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background-color: #F9FAFB;
+        border: 1px solid #E5E7EB;
+        border-radius: 8px;
+        font-weight: 500;
+        color: #0A2540;
+    }
+    
+    .streamlit-expanderHeader:hover {
+        background-color: #F3F4F6;
+    }
+    
+    /* Info/Warning/Success boxes */
+    .stAlert {
+        border-radius: 8px;
+        border: 1px solid;
+        padding: 1rem;
+    }
+    
+    div[data-testid="stInfo"] {
+        background-color: #EFF6FF;
+        border-color: #5B5BFF;
+        color: #1E40AF;
+    }
+    
+    div[data-testid="stWarning"] {
+        background-color: #FEF3C7;
+        border-color: #F59E0B;
+        color: #92400E;
+    }
+    
+    div[data-testid="stSuccess"] {
+        background-color: #D1FAE5;
+        border-color: #10B981;
+        color: #065F46;
+    }
+    
+    /* Multiselect */
+    .stMultiSelect > div > div {
+        background-color: white;
+        border: 1px solid #D1D5DB;
+        border-radius: 8px;
+    }
+    
+    /* Radio buttons */
+    .stRadio > div {
+        background-color: #F9FAFB;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #E5E7EB;
+    }
+    
+    /* Date input */
+    .stDateInput > div > div {
+        background-color: white;
+        border: 1px solid #D1D5DB;
+        border-radius: 8px;
+    }
+    
+    /* Text input */
+    .stTextInput > div > div > input {
+        border: 1px solid #D1D5DB;
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #5B5BFF;
+        box-shadow: 0 0 0 3px rgba(91, 91, 255, 0.1);
+    }
+    
+    /* Section styling */
+    .section-container {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1.5rem;
+    }
+    
+    /* Step indicators */
+    .step-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        background-color: #5B5BFF;
+        color: white;
+        border-radius: 50%;
+        font-weight: 600;
+        margin-right: 0.75rem;
+    }
+    
+    /* Custom divider */
+    .custom-divider {
+        height: 1px;
+        background-color: #E5E7EB;
+        margin: 2rem 0;
+    }
+    
+    /* Header styling */
+    .header-container {
+        background-color: white;
+        padding: 1.5rem 0;
+        border-bottom: 2px solid #E5E7EB;
+        margin-bottom: 2rem;
+    }
+    
+    .logo-title-container {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+    }
+    
+    .title-text {
+        color: #0A2540;
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0;
+    }
+    
+    /* Text area */
+    .stTextArea textarea {
+        border: 1px solid #D1D5DB;
+        border-radius: 8px;
+        font-family: 'Monaco', 'Menlo', monospace;
+    }
+    
+    /* Code blocks */
+    .stCodeBlock {
+        background-color: #F9FAFB;
+        border: 1px solid #E5E7EB;
+        border-radius: 8px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# Branded header
-this_dir = os.path.dirname(os.path.abspath(__file__))
-logo_path = os.path.join(this_dir, "logo.png")
-col1, col2 = st.columns([1, 5])
+# Header with logo
+st.markdown('<div class="header-container">', unsafe_allow_html=True)
+col1, col2 = st.columns([1, 11])
 with col1:
-    st.image(logo_path, width=160)
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_path = os.path.join(this_dir, "logo.png")
+    st.image(logo_path, width=50)
 with col2:
-    st.markdown(
-        """
-        <h1 style=\"margin:0; color:#111827; font-family:Arial, sans-serif;\">
-          Covercy Excel Merge Tool
-        </h1>
-        """,
-        unsafe_allow_html=True,
-    )
-st.markdown("<hr/>", unsafe_allow_html=True)
+    st.markdown('<h1 class="title-text">Excel Merge Tool</h1>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-# Mode selection
-tab = st.sidebar.radio(
-    "Select mode:",
-    ["Distributions: Complete Import File", "Distributions: Incomplete Import File"]
-)
+# Tab selection with better styling (show Incomplete Import first by default)
+tab_incomplete, tab_complete = st.tabs(["📝 Incomplete Import File", "📊 Complete Import File"])
+
+# Store the active tab
+if tab_incomplete:
+    tab = "Distributions: Incomplete Import File"
+else:
+    tab = "Distributions: Complete Import File"
 
 # === Complete flow ===
 def run_complete_flow():
-    st.title("Distributions: Complete Import File")
-
-    # How-to instructions
-    with st.expander("How to"):
+    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+    
+    # Instructions in a collapsible section
+    with st.expander("📖 Instructions - How to Use This Tool", expanded=False):
         st.markdown(
-              """
-1. Prepare Customer Source Data Spreadsheet  
-    a. If there are multiple tabs within the source spreadsheet, ensure the data you want mapped is in the first tab (optionally, you can also bring that data into its own spreadsheet)  
-    b. Ensure Distribution Dates, Investor/Investing Entity Names, and Distribution Amounts are each in their own columns  
-    c. (optional) replace non-matching investor names in the source sheet, with the exact Investing Entity Name from Covercy's Import Sheet. This application will try to match non-matching names, and will give you the opportunity to match names manually, but it sometimes helps to do this ahead of time  
-    d. In a row above where the data begins, write in headers above the relevant data to help find the data you want mapped (e.g. "Date," "Investing Entity," "Amount")  
-    e. Close that spreadsheet (it won't upload if the spreadsheet is opened)  
-2. Upload Customer Source Data Spreadsheet where it says "Source Excel File"  
-3. Upload Covercy Import Sheet where it says "Target Excel File"  
-4. Ignore "Source Data Preview" table for now  
-5. Choose the Source Sheet columns you want to map data from  
-    a. Where it says "Select Investing Entity column" choose your investing entity header  
-    b. Where it says "Select Date column" choose your date header  
-    c. Where it says "Select Amount column" choose your amount header  
-6. Map Target Entities: Once you have chosen which columns to pull data from, you can see what investing entities from the source sheet will be mapped to the corresponding investing entity in the import file  
-    a. Column: Source_Entity shows all Data it sees below your Investing Entity Header in the source file. There may be non-investing entities here if there are non-entity names in that column. Don't worry about these. They will not be mapped unless you choose to map them  
-    b. Column: suggestion_1 shows investing entities from the import sheet the app thinks are the best match for the corresponding entity name in the source file. These will not impact the final Data Merge  
-    c. Column: Target_Entity shows the investing entities from the import file that will actually be mapped to. These are the entities that matter. If there is a name here, any distribution amounts associated with the relevant name in the Source_Entity column will be pulled into the import file for the Target_Entity Investor  
-    d. Within the Target_Entity Column, you may delete names, or write in new names (for instance, if the source file shows John Smith and Jon smith (a typo in this case), you may want to make sure that the same investing entity name is written in the associated row in the Target_Entity Column  
-    e. The names in the Target_Entity Column must match what is in Covercy's Import file exactly, so if you write in/copy and paste a name, make sure they match!  
-7. Resolve Duplicates: If there is more than one distribution amount associated with the same date for the same investing entity, you may choose here to either pick one amount, or sum them together  
-    - Important Note: This application cannot yet distinguish between different types of distributions (e.g. Preferred Return vs Return of Capital) so you have to check!  
-8. Click "Finalize and Download Updated Target" - This will not actually download the import file yet  
-9. Click "Download Updated Target" - This will download the import file  
-10. Check and make sure everything looks good! You should still do your best to ensure the data is mapped accurately.  
-11. Upload into Covercy.
+            """
+            ### Step-by-Step Guide
+            
+            1. **Prepare Your Source Data**
+               - Ensure data is in the first tab of your spreadsheet
+               - Distribution dates, investor names, and amounts should be in separate columns
+               - Add clear headers above your data (e.g., "Date", "Investing Entity", "Amount")
+               - Close the spreadsheet before uploading
+            
+            2. **Upload Files**
+               - Upload your source data spreadsheet
+               - Upload the Covercy import template
+            
+            3. **Map Your Data**
+               - Select which columns contain your dates, entities, and amounts
+               - Review and adjust entity name mappings
+               - Choose how to handle distribution types
+            
+            4. **Review & Download**
+               - Resolve any duplicate amounts
+               - Download the completed import file
+               - Upload to Covercy
+            
+            💡 **Pro Tip:** For best results, ensure investor names in your source file match Covercy's naming conventions.
             """
         )
-
-
-    # 1) Upload
-    source_file = st.file_uploader("Upload source Excel file", type=["xlsx","xls"], key="src")
-    target_file = st.file_uploader("Upload target Excel file", type=["xlsx","xls"], key="tgt")
+    
+    # Step 1: File Upload Section
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">1</span>Upload Files</h2>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### Source Excel File")
+        st.markdown("<small style='color: #6B7280;'>Your data spreadsheet with distributions</small>", unsafe_allow_html=True)
+        source_file = st.file_uploader("", type=["xlsx","xls"], key="src", label_visibility="collapsed")
+    
+    with col2:
+        st.markdown("##### Target Excel File")
+        st.markdown("<small style='color: #6B7280;'>Covercy import template</small>", unsafe_allow_html=True)
+        target_file = st.file_uploader("", type=["xlsx","xls"], key="tgt", label_visibility="collapsed")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     if not (source_file and target_file):
+        st.info("👆 Please upload both files to continue")
         return
 
-    # 2) Read & preview source
+    # Read source file
     df_source = pd.read_excel(source_file)
-    st.subheader("Source Data Preview")
-    st.dataframe(df_source.head(5))
-
-    # 3) Column mapping
+    
+    # Step 2: Data Preview & Column Selection
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">2</span>Configure Data Mapping</h2>', unsafe_allow_html=True)
+    
+    # Preview
+    st.markdown("##### Source Data Preview")
+    st.dataframe(df_source.head(5), use_container_width=True)
+    
+    # Column selection
+    st.markdown("##### Select Data Columns")
     cols = df_source.columns.tolist()
-    src_ent = st.selectbox("Select Investing Entity column", cols)
-    src_dt  = st.selectbox("Select Date column", cols)
-    src_amt = st.selectbox("Select Amount column", cols)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        src_ent = st.selectbox("Investing Entity column", cols, help="Column containing investor/entity names")
+    with col2:
+        src_dt = st.selectbox("Date column", cols, help="Column containing distribution dates")
+    with col3:
+        src_amt = st.selectbox("Amount column", cols, help="Column containing distribution amounts")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
+    # Parse dates
     df_source['parsed_date'] = pd.to_datetime(df_source[src_dt], errors='coerce').dt.date
     invalid = df_source['parsed_date'].isna().sum()
     if invalid:
-        st.warning(f"{invalid} rows have unparseable dates and will be skipped.")
+        st.warning(f"⚠️ {invalid} rows have unparseable dates and will be skipped.")
 
-    # 4) Inspect target sheet layout
+    # Inspect target sheet layout
     df_raw = pd.read_excel(target_file, header=None)
     ent_col = 2
     ent_label_row = df_raw[df_raw[ent_col] == 'Investing Entity'].index[0]
@@ -125,31 +424,30 @@ def run_complete_flow():
     ent_rows      = list(range(ent_label_row + 1, gp_row))
     target_entities = [str(df_raw.iat[r, ent_col]).strip() for r in ent_rows]
 
-    # ---- Build (date, type) -> starting-column map ----
-    date_label_row = ent_label_row - 2  # row where the header text "Last Day" appears
+    # Build (date, type) -> starting-column map
+    date_label_row = ent_label_row - 2
     date_cols = [j for j in range(df_raw.shape[1])
                  if str(df_raw.iat[date_label_row, j]).strip() == 'Last Day']
 
     date_type_map = {}
     for j in date_cols:
-        # date is the value one row below the header (row date_label_row+1)
         dist_date = pd.to_datetime(df_raw.iat[date_label_row + 1, j], errors='coerce').date()
-
-        # primary location of type: global row 3 (Excel row 4) two columns to the right
+        
         try:
-            # Type label is one column to the right of "Last Day" header
             dist_type_raw = str(df_raw.iat[date_label_row + 1, j + 1]).strip()
         except IndexError:
             dist_type_raw = ""
 
-        # fallback – if still empty, look two columns right (legacy layout)
         if dist_type_raw == "" or dist_type_raw == "-":
             dist_type_raw = str(df_raw.iat[date_label_row + 1, j + 2]).strip()
 
         dist_type = dist_type_raw or ""
         date_type_map[(dist_date, dist_type)] = j
 
-    # 5) Entity mapping UI
+    # Step 3: Entity Mapping
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">3</span>Map Entities</h2>', unsafe_allow_html=True)
+    
     unique_src = df_source[src_ent].dropna().astype(str).unique().tolist()
     map_df = pd.DataFrame({'source_entity': unique_src})
     map_df['suggestion_1'] = map_df['source_entity'].apply(
@@ -157,30 +455,47 @@ def run_complete_flow():
     )
     map_df['target_entity'] = map_df['suggestion_1']
 
-    st.subheader("Map Source Entities to Target Entities")
+    st.markdown("##### Match source entities to target entities")
+    st.markdown("<small style='color: #6B7280;'>Review and adjust the suggested mappings below. Only mapped entities will be included in the final import.</small>", unsafe_allow_html=True)
+    
     edited = st.data_editor(
         map_df,
         column_config={
+            'source_entity': st.column_config.TextColumn(
+                "Source Entity",
+                help="Entity names from your source file",
+                disabled=True,
+            ),
+            'suggestion_1': st.column_config.TextColumn(
+                "Suggested Match",
+                help="Our best guess based on name similarity",
+                disabled=True,
+            ),
             'target_entity': st.column_config.SelectboxColumn(
-                label="Target Entity",
-                help="Select the exact entity name from the target file.",
-                options=target_entities,
+                "Target Entity",
+                help="Select the exact entity name from the Covercy template",
+                options=[""] + target_entities,
                 required=False,
             )
-        }, hide_index=True
+        }, 
+        hide_index=True,
+        use_container_width=True
     )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # 5.5) Distribution-type handling --------------------------------------
-    st.subheader("Distribution Type Handling")
+    # Step 4: Distribution Type Handling
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">4</span>Distribution Types</h2>', unsafe_allow_html=True)
 
     type_mode = st.radio(
-        "Choose how distribution types should be treated:",
-        ("Ignore distribution types (single-type)", "Match distribution types (multi-type)"),
+        "How should distribution types be handled?",
+        ("🔲 Single type - Ignore distribution types", "🔷 Multiple types - Match distribution types"),
         index=1,
-        key="comp_type_mode"
+        key="comp_type_mode",
+        horizontal=True
     )
 
-    ignore_types = type_mode.startswith("Ignore")
+    ignore_types = type_mode.startswith("🔲")
 
     dist_options = [
         "Preferred Return", "Interest", "Profit", "Return of Capital",
@@ -188,116 +503,116 @@ def run_complete_flow():
     ]
 
     if ignore_types:
-        # --- Single-type mode: collapse everything to blank type -------------
         df_source['mapped_type'] = ""
-
-        # Collapse the (date, type) ➜ col map so keys become (date, "")
         collapsed_map = {}
         for (d, t), col_idx in date_type_map.items():
             if (d, "") not in collapsed_map:
-                collapsed_map[(d, "")] = col_idx  # keep first block for that date
+                collapsed_map[(d, "")] = col_idx
         date_type_map = collapsed_map
-
-        st.info("Distribution types will be ignored; amounts will be matched only by entity and date.")
+        st.info("ℹ️ Distribution types will be ignored; amounts will be matched only by entity and date.")
 
     else:
-        # --- Multi-type mode (existing behaviour) ---------------------------
         type_cols = [c for c in cols if c not in [src_ent, src_dt, src_amt]]
         type_cols_display = ["<No type column>"] + type_cols
 
         chosen_type_col = st.selectbox(
-            "Select Distribution Type column from source (leave as '<No type column>' if none)",
+            "Select Distribution Type column from source",
             options=type_cols_display,
-            key="comp_dist_type_col"
+            key="comp_dist_type_col",
+            help="Leave as '<No type column>' if your source doesn't have distribution types"
         )
 
-        # --- Allow user to paste or select a recent token -------------
-        saved_tokens = st.session_state.get("token_history", [])
+        # Token handling section
+        st.markdown("##### Mapping Configuration")
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            saved_tokens = st.session_state.get("token_history", [])
+            
+            if saved_tokens and "comp_mapping_token" not in st.session_state:
+                st.session_state["comp_mapping_token"] = saved_tokens[-1]
 
-        # Auto-fill newest token into the input box (only on first load)
-        if saved_tokens and "comp_mapping_token" not in st.session_state:
-            st.session_state["comp_mapping_token"] = saved_tokens[-1]
+            token_input = st.text_input(
+                "Paste Mapping Token (optional)",
+                key="comp_mapping_token",
+                placeholder="Paste a token from the Incomplete flow to reuse mappings",
+                help="If you've already configured type mappings in the Incomplete flow, paste the token here"
+            )
 
-        token_input = st.text_input(
-            "Paste Mapping Token from Incomplete flow (optional)",
-            key="comp_mapping_token",
-        )
+        with col2:
+            if saved_tokens:
+                token_options = [""] + list(reversed(saved_tokens))
+                
+                def _tok_label(tok: str) -> str:
+                    if tok == "":
+                        return "Select a token..."
+                    if saved_tokens and tok == saved_tokens[-1]:
+                        return "★ Most Recent"
+                    idx = list(reversed(saved_tokens)).index(tok)
+                    return f"Token {idx+1}"
 
-        # Build dropdown where newest token is clearly labelled
-        token_options = [""] + list(reversed(saved_tokens))
+                token_select = st.selectbox(
+                    "Or select recent token",
+                    token_options,
+                    format_func=_tok_label,
+                    key="comp_mapping_token_select",
+                )
 
-        def _tok_label(tok: str) -> str:
-            if tok == "":
-                return ""
-            if saved_tokens and tok == saved_tokens[-1]:
-                return "★ Newest"
-            # position among older tokens (2,3,…)
-            idx = list(reversed(saved_tokens)).index(tok)  # 0-based
-            return f"Token {idx+1}"
-
-        token_select = st.selectbox(
-            "Or choose a recent token",
-            token_options,
-            format_func=_tok_label,
-            key="comp_mapping_token_select",
-        )
-
-        # Show older tokens in a collapsible expander for reference
-        if len(saved_tokens) > 1:
-            with st.expander("Older tokens"):
-                for tok in reversed(saved_tokens[:-1]):
-                    st.code(tok, language="")
-
-        chosen_token = token_select or token_input.strip()
+        chosen_token = token_select if token_select else token_input.strip()
 
         mapping_from_token = {}
         if chosen_token:
             try:
                 decoded = base64.urlsafe_b64decode(chosen_token.encode()).decode()
                 mapping_from_token = json.loads(decoded)
-                st.success("Mapping token applied.")
+                st.success("✅ Mapping token applied successfully")
             except Exception:
-                st.warning("Invalid mapping token – ignoring.")
+                st.error("❌ Invalid mapping token")
 
         if chosen_type_col == "<No type column>":
             df_source['mapped_type'] = ""
         else:
             if mapping_from_token:
-                # Use mapping from token, fill missing with blank
                 type_mapping = mapping_from_token
                 df_source['mapped_type'] = df_source[chosen_type_col].map(type_mapping).fillna("")
             else:
-                # Show editor as before
                 unique_src_types = df_source[chosen_type_col].dropna().astype(str).unique().tolist()
                 type_df = pd.DataFrame({'source_type': unique_src_types})
                 type_df['target_type'] = type_df['source_type'].apply(
                     lambda x: (difflib.get_close_matches(x, dist_options, n=1, cutoff=0.6) or [""])[0]
                 )
 
-                st.markdown("Map source distribution types to Covercy types:")
+                st.markdown("##### Map distribution types")
                 edited_type_df = st.data_editor(
                     type_df,
                     column_config={
-                        'source_type': {"help": "Values detected in the source file."},
+                        'source_type': st.column_config.TextColumn(
+                            "Source Type",
+                            help="Distribution types from your file",
+                            disabled=True
+                        ),
                         'target_type': st.column_config.SelectboxColumn(
-                            label="Target Type",
-                            help="Standard Covercy type to map to.",
+                            "Target Type",
+                            help="Select the Covercy distribution type",
                             options=[""] + dist_options,
                             required=False,
                         ),
                     },
                     hide_index=True,
+                    use_container_width=True,
                     key="comp_dist_type_mapper"
                 )
 
                 type_mapping = dict(zip(edited_type_df['source_type'], edited_type_df['target_type']))
                 df_source['mapped_type'] = df_source[chosen_type_col].map(type_mapping).fillna("")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # 6) Duplicate resolution ------------------------------------------------
+    # Step 5: Duplicate Resolution
     mapping = dict(zip(edited['source_entity'], edited['target_entity']))
     df_source['mapped_entity'] = df_source[src_ent].map(mapping)
 
-    valid_pairs = set(date_type_map.keys())  # (date, type) pairs present in template
+    valid_pairs = set(date_type_map.keys())
 
     dup_src = df_source[
         (df_source['mapped_entity'] != "") &
@@ -311,34 +626,55 @@ def run_complete_flow():
     chosen = {}
 
     if not dups.empty:
-        st.subheader("Resolve Duplicate Amounts")
+        st.markdown('<div class="section-container">', unsafe_allow_html=True)
+        st.markdown('<h2><span class="step-indicator">5</span>Resolve Duplicates</h2>', unsafe_allow_html=True)
+        st.markdown("<small style='color: #6B7280;'>Multiple amounts found for the same entity/date/type combination. Choose how to handle each:</small>", unsafe_allow_html=True)
 
-        # — Sum All button —
-        if st.button("Sum All Duplicates"):
+        if st.button("🔢 Sum All Duplicates", use_container_width=True):
             for _, row in dups.iterrows():
                 key = f"dup_{row['mapped_entity']}_{row['parsed_date']}_{row['mapped_type']}"
                 st.session_state[key] = 'SUM'
 
-        # — Individual radios —
         for _, row in dups.iterrows():
             ent, dt, typ, amts = row['mapped_entity'], row['parsed_date'], row['mapped_type'], row['amounts']
             key = f"dup_{ent}_{dt}_{typ}"
             options = [str(a) for a in amts] + ['SUM']
             if key not in st.session_state:
                 st.session_state[key] = 'SUM'
-            # radio uses session_state[key] as its value
-            sel = st.radio(f"Select amount for {ent} on {dt} ({typ})", options, key=key)
-            # read back from session_state so "Sum All" overrides persist
+            
+            type_str = f" ({typ})" if typ else ""
+            sel = st.radio(
+                f"**{ent}** on {dt}{type_str}", 
+                options, 
+                key=key,
+                horizontal=True
+            )
             sel = st.session_state[key]
             chosen[(ent, dt, typ)] = sum(amts) if sel == 'SUM' else float(sel)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # 7. Finalize and write-back…
-    if st.button("Finalize and Download Updated Target"):
-        # … your existing write-back logic …
-
+    # Step 6: Finalize
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">6</span>Finalize & Download</h2>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown("##### Ready to generate your import file?")
+        st.markdown("<small style='color: #6B7280;'>Click below to process your data and create the final import file.</small>", unsafe_allow_html=True)
+    
+    if st.button("✨ Generate Import File", use_container_width=True, type="primary"):
         wb = load_workbook(filename=target_file)
         ws = wb[wb.sheetnames[0]]
         unmatched=[]
+        
+        # Progress bar
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_entities = len(target_entities)
+        processed = 0
+        
         for r,ent in zip(ent_rows, target_entities):
             for (dist_date, dist_type), col_idx in date_type_map.items():
                 if pd.isna(dist_date):
@@ -350,144 +686,219 @@ def run_complete_flow():
                 ]
                 if not m.empty:
                     amt = chosen.get((ent, dist_date, dist_type), m[src_amt].iloc[0])
-                    # col_idx is 0-based index of "Last Day" column; Gross column is one left.
-                    # openpyxl expects 1-based indices, so we write to column=col_idx
                     ws.cell(row=r + 1, column=col_idx).value = amt
                 else:
                     unmatched.append((ent, dist_date, dist_type))
-        buf=io.BytesIO(); wb.save(buf); buf.seek(0)
-        st.success("Updated target workbook successfully!")
-        st.download_button(
-            "Download Updated Target", data=buf,
-            file_name="updated_target.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            
+            processed += 1
+            progress_bar.progress(processed / total_entities)
+            status_text.text(f"Processing entity {processed}/{total_entities}...")
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        buf=io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        
+        st.success("✅ Import file generated successfully!")
+        
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.download_button(
+                "📥 Download Import File",
+                data=buf,
+                file_name=f"covercy_import_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        
         if unmatched:
-            st.warning(f"{len(unmatched)} entries were not matched.")
-            st.write(unmatched)
+            with st.expander(f"⚠️ {len(unmatched)} unmatched entries", expanded=False):
+                st.write("The following entity/date/type combinations were not found in the source data:")
+                unmatched_df = pd.DataFrame(unmatched, columns=['Entity', 'Date', 'Type'])
+                st.dataframe(unmatched_df, use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # === Incomplete flow ===
 def run_incomplete_flow():
-    st.title("Distributions: Incomplete Import File")
-
-    # How-to instructions
-    with st.expander("How to"):
+    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+    
+    # Instructions in a collapsible section
+    with st.expander("📖 Instructions - How to Use This Tool", expanded=False):
         st.markdown(
-             """
-Note: this section of the app is still in progress. Read the steps carefully  
-
-Important Note: This application cannot yet distinguish between different types of distributions (e.g. Preferred Return vs Return of Capital) so you should probably separate them when you prepare the source sheet  
-
-Steps:  
-1. Generate a Covercy Distribution Import file for the relevant asset with a single, custom distribution date. Preferably, a date with no actual distribution BEFORE any real distribution  
-2. Prepare Customer Source Data Spreadsheet  
-    a. If there are multiple tabs within the source spreadsheet, ensure the data you want mapped is in the first tab (optionally, you can also bring that data into its own spreadsheet)  
-    b. Ensure Distribution Dates, Investor/Investing Entity Names, and Distribution Amounts are each in their own columns  
-    c. (optional) replace non-matching investor names in the source sheet, with the exact Investing Entity Name from Covercy's Import Sheet. This application will try to match non-matching names, and will give you the opportunity to match names manually, but it sometimes helps to do this ahead of time  
-    d. In a row above where the data begins, write in headers above the relevant data to help find the data you want mapped (e.g. "Date," "Investing Entity," "Amount")  
-    e. Close that spreadsheet (it won't upload if the spreadsheet is opened)  
-3. Upload Customer Source Data Spreadsheet where it says "Source Excel File"  
-4. Upload the Single Distribution Date Covercy Import file where it says "incomplete target file"  
-5. Choose which Dates to add is a little buggy. Best thing to do is leave all selected, and scroll down to "Or filter by date range"  
-6. By default, the whole range of dates will be selected  
-7. If you want to select only a custom range, select the dates you want. you will select both dates back to back, so it may feel a little weird. you should also be able to manually edit the dates. This is a little buggy, and will be improved.  
-8. Download Populated Template - Now you will have an Import file Complete with all distribution periods  
-9. Make sure Distribution Type is what it should be. Right now, this is best for preferred return.  
-10. Go to "Distributions: Complete Import File" and use this new import file as your "Target Excel File"  
-
-**IMPORTANT NOTE:** For some reason, Covercy only seems to accept about the first 60% of the distribution periods. Still working on a fix for this. Therefore after you import, see what the last distribution date uploaded was, come back to this application page, upload the original Covercy Import file again, and start from step 7... this time beginning on the date of the next distribution, and ending on the date of the last distribution. You may do this a few times.  
-
-Supplementary Note: It's helpful to pay attention to step 1, and use a date with no actual distribution BEFORE any real distribution when making the initial import file, so that when you re-upload the same file, you don't end up importing duplicate distributions
+            """
+            ### Overview
+            This tool helps you create a complete import file when you only have a template with a single distribution date.
+            
+            ### Step-by-Step Guide
+            
+            1. **Prepare Template**
+               - Generate a Covercy import file with a single distribution date
+               - Use a date BEFORE your actual distributions to avoid duplicates
+            
+            2. **Prepare Source Data**
+               - Ensure dates, entities, and amounts are in separate columns
+               - Add clear headers to your data
+               - Close the file before uploading
+            
+            3. **Upload & Configure**
+               - Upload your source data and single-date template
+               - Select which dates to include
+               - Configure distribution types
+            
+            4. **Generate & Use**
+               - Download the populated template
+               - Use it in the "Complete Import File" tab
+            
+            ⚠️ **Important:** Due to Covercy limitations, only ~60% of periods may import at once. You may need to repeat the process for remaining dates.
             """
         )
-
-
-    # 1) Upload files
-    source_file = st.file_uploader("Upload source Excel file", type=["xlsx","xls"], key="inc_src")
-    target_file = st.file_uploader("Upload incomplete target file", type=["xlsx","xls"], key="inc_tgt")
+    
+    # Step 1: File Upload
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">1</span>Upload Files</h2>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### Source Excel File")
+        st.markdown("<small style='color: #6B7280;'>Your data with all distribution dates</small>", unsafe_allow_html=True)
+        source_file = st.file_uploader("", type=["xlsx","xls"], key="inc_src", label_visibility="collapsed")
+    
+    with col2:
+        st.markdown("##### Incomplete Target File")
+        st.markdown("<small style='color: #6B7280;'>Covercy template with single date</small>", unsafe_allow_html=True)
+        target_file = st.file_uploader("", type=["xlsx","xls"], key="inc_tgt", label_visibility="collapsed")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     if not (source_file and target_file):
+        st.info("👆 Please upload both files to continue")
         return
 
-    # 2) Read & parse source dates
+    # Read & parse source
     df_src = pd.read_excel(source_file)
-    st.subheader("Source Data Preview (Incomplete Flow)")
-    st.dataframe(df_src.head(5))
+    
+    # Step 2: Configure Source Data
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">2</span>Configure Source Data</h2>', unsafe_allow_html=True)
+    
+    st.markdown("##### Source Data Preview")
+    st.dataframe(df_src.head(5), use_container_width=True)
 
-    # Let the user pick which column holds the dates
+    st.markdown("##### Select Date Column")
     inc_date_col = st.selectbox(
-        "Select Date column from source",
+        "Which column contains distribution dates?",
         options=df_src.columns.tolist(),
-        key="inc_date_col"
+        key="inc_date_col",
+        help="Select the column that contains the distribution dates"
     )
 
-    # Parse dates using their choice
+    # Parse dates
     df_src['parsed_date'] = pd.to_datetime(
         df_src[inc_date_col], errors='coerce'
     ).dt.date
 
     invalid = df_src['parsed_date'].isna().sum()
     if invalid:
-        st.warning(f"{invalid} rows have unparseable dates and will be skipped.")
+        st.warning(f"⚠️ {invalid} rows have unparseable dates and will be skipped.")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-
-    # 3) Load target
+    # Load target workbook
     data = target_file.read()
     wb = load_workbook(io.BytesIO(data), data_only=False)
     ws = wb.active
 
-    # 4) Locate entity rows
+    # Locate entity rows
     colC = [c.value for c in ws['C']]
     ent_label_row = colC.index("Investing Entity")+1
     gp_row        = colC.index("GP")+1
     entity_rows   = list(range(ent_label_row+1, gp_row+1))
 
-    # 5) Copy first block headers
+    # Copy first block headers
     first_col, width = 6, 7
     hdr1 = [ws.cell(row=1, column=c).value for c in range(first_col, first_col+width)]
     hdr3 = [ws.cell(row=3, column=c).value for c in range(first_col, first_col+width)]
     hdr5 = [ws.cell(row=5, column=c).value for c in range(first_col, first_col+width)]
 
-    # 6) Build new-dates list
+    # Build new-dates list
     existing = ws.cell(row=4, column=first_col+1).value
     uniq = df_src['parsed_date'].unique()
     new_dates = sorted([d for d in uniq if pd.notna(d) and d != existing])
 
-    # Date selection UI
-    st.subheader("Choose which dates to add:")
-    date_strs = [d.strftime("%Y-%m-%d") for d in new_dates]
+    # Step 3: Select Dates
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">3</span>Select Distribution Dates</h2>', unsafe_allow_html=True)
+    
+    if not new_dates:
+        st.error("No valid dates found in the source file!")
+        return
+    
+    # Date range selector
+    st.markdown("##### Filter by Date Range")
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input(
+            "Start date",
+            value=new_dates[0],
+            min_value=new_dates[0],
+            max_value=new_dates[-1],
+            key='inc_start_date'
+        )
+    with col2:
+        end_date = st.date_input(
+            "End date",
+            value=new_dates[-1],
+            min_value=new_dates[0],
+            max_value=new_dates[-1],
+            key='inc_end_date'
+        )
+    
+    # Filter dates based on range
+    dates_in_range = [d for d in new_dates if start_date <= d <= end_date]
+    
+    st.info(f"📅 Found {len(dates_in_range)} dates in the selected range")
+    
+    # Date selection buttons
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("✓ Select All", use_container_width=True):
+            st.session_state['sel_dates'] = [d.strftime("%Y-%m-%d") for d in dates_in_range]
+    with col2:
+        if st.button("✗ Clear All", use_container_width=True):
+            st.session_state['sel_dates'] = []
+    
+    # Initialize selection
+    date_strs = [d.strftime("%Y-%m-%d") for d in dates_in_range]
     if 'sel_dates' not in st.session_state:
         st.session_state['sel_dates'] = date_strs.copy()
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Select All Dates"):
-            st.session_state['sel_dates'] = date_strs.copy()
-    with c2:
-        if st.button("Clear All Dates"):
-            st.session_state['sel_dates'] = []
-    selected = st.multiselect(
-        "Select dates:",
-        options=date_strs,
-        default=date_strs,
-        key='sel_dates',
-        format_func=lambda x: datetime.strptime(x, "%Y-%m-%d").strftime("%b %d, %Y")
-    )
-    st.markdown("---")
-    st.write("**Or filter by date range:**")
-    if new_dates:
-        start, end = st.date_input("Date range:", [new_dates[0], new_dates[-1]], key='date_range')
-        rng = [d for d in new_dates if start <= d <= end]
-        dates_to_use = sorted([d for d in rng if d.strftime("%Y-%m-%d") in selected])
-    else:
-        dates_to_use = []
+    
+    # Multiselect for fine-tuning
+    with st.expander("Fine-tune date selection", expanded=False):
+        selected = st.multiselect(
+            "Select specific dates:",
+            options=date_strs,
+            default=st.session_state.get('sel_dates', date_strs),
+            key='sel_dates',
+            format_func=lambda x: datetime.strptime(x, "%Y-%m-%d").strftime("%b %d, %Y")
+        )
+    
+    dates_to_use = sorted([d for d in dates_in_range if d.strftime("%Y-%m-%d") in selected])
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # — New: select which distribution type to apply to all blocks —
-    st.subheader("Define Distribution Types")
+    # Step 4: Distribution Types
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">4</span>Configure Distribution Types</h2>', unsafe_allow_html=True)
 
     type_handling = st.radio(
         "How should distribution types be determined?",
-        ("Apply a single type to all new distributions", "Map types from a source column"),
+        ("🔲 Single type for all distributions", "🔷 Map types from source column"),
         index=0,
-        key="dist_type_handling"
+        key="dist_type_handling",
+        horizontal=True
     )
 
     dist_options = [
@@ -497,74 +908,132 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
 
     dates_and_types_to_use = []
 
-    if type_handling == "Apply a single type to all new distributions":
+    if type_handling.startswith("🔲"):
         dist_type = st.selectbox(
-            "Select Distribution Type for all new blocks",
+            "Select Distribution Type for all periods",
             options=dist_options,
-            index=0
+            index=0,
+            help="This type will be applied to all distribution periods"
         )
-        # Use the already-filtered dates_to_use list
         dates_and_types_to_use = [(d, dist_type) for d in dates_to_use]
-    else: # Map types from a source column
-        # Allow user to select the distribution type column
+        
+    else:  # Map types from source
+        # Select type column
+        type_cols = [c for c in df_src.columns if c not in [inc_date_col, 'parsed_date']]
+        
+        if not type_cols:
+            st.error("No additional columns available for distribution types!")
+            return
+            
         inc_dist_type_col = st.selectbox(
-            "Select Distribution Type column from source",
-            options=[c for c in df_src.columns if c not in [inc_date_col, 'parsed_date']],
+            "Select Distribution Type column",
+            options=type_cols,
             key="inc_dist_type_col",
-            help="Select the column in your source file that specifies the distribution type for each row."
+            help="Column that specifies the distribution type for each row"
         )
 
         if inc_dist_type_col:
-            # Find unique types and set up the mapping editor
+            # --- Build initial mapping df ---
             unique_src_types = df_src[inc_dist_type_col].dropna().astype(str).unique().tolist()
-            type_map_df = pd.DataFrame({'source_type': unique_src_types})
 
-            # Pre-fill with best guess, leaving unmatched blank
-            type_map_df['target_type'] = type_map_df['source_type'].apply(
-                lambda x: (difflib.get_close_matches(x, dist_options, n=1, cutoff=0.6) or [""])[0]
-            )
+            # Retrieve existing in-session mapping (persists across reruns)
+            mapping_dict = st.session_state.get("inc_type_mapping", {})
 
-            st.markdown("Map source distribution types to the target types:")
+            def _initial_target(src: str) -> str:
+                # Prefer saved mapping; otherwise suggest best match
+                if src in mapping_dict:
+                    return mapping_dict[src]
+                return (difflib.get_close_matches(src, dist_options, n=1, cutoff=0.6) or [""])[0]
+
+            type_map_df = pd.DataFrame({
+                'source_type': unique_src_types,
+                'target_type': [ _initial_target(s) for s in unique_src_types ]
+            })
+
+            # --- Bulk-assign helper UI ---
+            st.markdown("##### Bulk assign distribution types")
+            fil_col, assign_col = st.columns([3,2])
+
+            with fil_col:
+                filter_text = st.text_input(
+                    "Filter source types (case-insensitive contains)",
+                    key="inc_type_filter",
+                    placeholder="e.g. pref"
+                )
+
+            with assign_col:
+                bulk_choice = st.selectbox(
+                    "Set filtered to…",
+                    [""] + dist_options,
+                    key="inc_bulk_type_choice"
+                )
+
+            if st.button("Apply to filtered rows", key="inc_apply_bulk"):
+                if filter_text and bulk_choice:
+                    matches = [s for s in unique_src_types if filter_text.lower() in s.lower()]
+                    for s in matches:
+                        mapping_dict[s] = bulk_choice
+                    # Reflect change in current session and dataframe for immediate feedback
+                    st.session_state["inc_type_mapping"] = mapping_dict
+                    type_map_df.loc[type_map_df['source_type'].isin(matches), 'target_type'] = bulk_choice
+                    st.success(f"Assigned '{bulk_choice}' to {len(matches)} source types")
+ 
+            st.markdown("##### Map source types to Covercy types")
+            # Apply live filter to table view
+            display_df = type_map_df if not filter_text else type_map_df[type_map_df['source_type'].str.contains(filter_text, case=False)]
+
             edited_type_map = st.data_editor(
-                type_map_df,
+                display_df,
                 column_config={
-                    'source_type': {"help": "Distribution types found in your source file."},
+                    'source_type': st.column_config.TextColumn(
+                        "Source Type",
+                        help="Types found in your file",
+                        disabled=True
+                    ),
                     'target_type': st.column_config.SelectboxColumn(
-                        label="Target Type",
-                        help="Select the standardized Covercy distribution type.",
+                        "Target Type",
+                        help="Select the Covercy type",
                         options=[""] + dist_options,
                         required=False,
                     )
                 },
                 hide_index=True,
-                key="dist_type_mapper"
+                use_container_width=True,
+                key="inc_dist_type_mapper"
             )
 
-            # Create mapping dictionary and apply it
-            type_mapping = dict(zip(edited_type_map['source_type'], edited_type_map['target_type']))
+            # Merge manual edits into mapping_dict
+            for src, tgt in zip(edited_type_map['source_type'], edited_type_map['target_type']):
+                if tgt:
+                    mapping_dict[src] = tgt
+                elif src in mapping_dict:
+                    del mapping_dict[src]
+
+            st.session_state["inc_type_mapping"] = mapping_dict
+
+            # Final mapping used downstream
+            type_mapping = mapping_dict.copy()
             df_src['mapped_type'] = df_src[inc_dist_type_col].map(type_mapping)
 
-            # --- Show reusable mapping token -------------------------------
+            
+            # Generate token
             mapping_token = base64.urlsafe_b64encode(json.dumps(type_mapping).encode()).decode()
+            
+            st.markdown("##### Mapping Token")
             st.text_area(
-                "Distribution-Type Mapping Token (copy for Complete flow)",
+                "Copy this token to reuse these mappings in the Complete flow",
                 mapping_token,
                 height=80,
+                help="Save this token to avoid remapping types when using the Complete Import File tab"
             )
 
-            # ---- Remember the token in session_state --------------------
+            # Save token to history
             hist = st.session_state.get("token_history", [])
-            hist.append(mapping_token)
-            st.session_state["token_history"] = hist[-10:]
+            if mapping_token not in hist:
+                hist.append(mapping_token)
+                st.session_state["token_history"] = hist[-10:]
 
-            # ---- Display recent tokens for convenience -----------------
-            if st.session_state["token_history"]:
-                st.markdown("### Recent Mapping Tokens (this browser tab)")
-                for tok in reversed(st.session_state["token_history"]):
-                    st.code(tok, language="")
-
-            # --------------------------------------------------------------
-            # Build list of unique (date, type) pairs requested
+            # Build date-type pairs
             dates_to_use_set = set(dates_to_use)
             relevant_rows = df_src[
                 df_src['parsed_date'].isin(dates_to_use_set)
@@ -576,70 +1045,121 @@ Supplementary Note: It's helpful to pay attention to step 1, and use a date with
                 [tuple(x) for x in unique_pairs.to_numpy()],
                 key=lambda x: x[0],
             )
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Ensure 56% rule placeholders -------------------------------------
+    # Step 5: Generate Template
+    st.markdown('<div class="section-container">', unsafe_allow_html=True)
+    st.markdown('<h2><span class="step-indicator">5</span>Generate Template</h2>', unsafe_allow_html=True)
+    
+    # 56% rule handling
     total_needed = ceil(len(dates_and_types_to_use) / 0.56)
     extra_needed = total_needed - len(dates_and_types_to_use)
+    
     if extra_needed > 0:
         placeholder_date = date(2040, 1, 1)
         placeholder_type = "Preferred Return"
         dates_and_types_to_use.extend([(placeholder_date, placeholder_type)] * extra_needed)
-        st.info(
-            f"Added {extra_needed} placeholder period(s) dated {placeholder_date.strftime('%d %b %Y')} to meet the 56% rule.")
+        st.info(f"ℹ️ Added {extra_needed} placeholder periods to accommodate Covercy's import limitations")
+    
+    st.markdown("##### Summary")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Selected Dates", len([d for d in dates_and_types_to_use if d[0].year != 2040]))
+    with col2:
+        st.metric("Placeholder Dates", extra_needed)
+    with col3:
+        st.metric("Total Periods", len(dates_and_types_to_use))
+    
+    if st.button("🚀 Generate Populated Template", use_container_width=True, type="primary"):
+        # Progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Append blocks
+        for idx, (last_day, dist_type) in enumerate(dates_and_types_to_use):
+            base = first_col + width*(idx+1)
+            
+            # Update progress
+            progress = (idx + 1) / len(dates_and_types_to_use)
+            progress_bar.progress(progress)
+            status_text.text(f"Adding distribution period {idx+1}/{len(dates_and_types_to_use)}...")
+            
+            # Headers
+            for r,vals in zip([1,3,5],[hdr1,hdr3,hdr5]):
+                for j,v in enumerate(vals):
+                    ws.cell(row=r, column=base+j).value = v
+            
+            # Row 2 - date range
+            short = f"{last_day.day} {last_day.strftime('%b')} {last_day.year}"
+            ws.cell(row=2, column=base   ).value = f"{short} - {short}"
+            ws.cell(row=2, column=base+1 ).value = "Custom"
+            ws.cell(row=2, column=base+2 ).value = "-"
+            ws.cell(row=2, column=base+3 ).value = datetime.now().year
+            
+            # Row 4 - full date and type
+            full = f"{last_day.day} {last_day.strftime('%B')} {last_day.year}"
+            ws.cell(row=4, column=base   ).value = full
+            ws.cell(row=4, column=base+1 ).value = full
+            ws.cell(row=4, column=base+2 ).value = dist_type
+            ws.cell(row=4, column=base+3 ).value = "USD"
+            
+            # Payment dates
+            pay_col = base+5
+            dt_val  = datetime(last_day.year,last_day.month,last_day.day)
+            for r in entity_rows:
+                cell_pd = ws.cell(row=r, column=pay_col)
+                cell_pd.value = dt_val
+                cell_pd.number_format = 'm/d/yyyy'
+            
+            # GP formula
+            prom = base+2
+            let = get_column_letter(prom)
+            s,e = entity_rows[0],entity_rows[-2]
+            ws.cell(row=entity_rows[-1], column=base).value = f"=SUM({let}{s}:{let}{e})"
+            
+            # Net formulas
+            g,t,p,a,n = base,base+1,base+2,base+3,base+4
+            for r in entity_rows[:-1]:
+                expr = (f"=SUM({get_column_letter(g)}{r},-"
+                        f"{get_column_letter(t)}{r},"
+                        f"{get_column_letter(a)}{r},-"
+                        f"{get_column_letter(p)}{r})")
+                ws.cell(row=r, column=n).value = expr
+            r_gp = entity_rows[-1]
+            expr_gp = (f"=SUM({get_column_letter(g)}{r_gp},-"
+                      f"{get_column_letter(t)}{r_gp},"
+                      f"{get_column_letter(a)}{r_gp})")
+            ws.cell(row=r_gp, column=n).value = expr_gp
+        
+        # Clear progress
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Save workbook
+        buf=io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        
+        st.success("✅ Template populated successfully!")
+        
+        # Download button
+        st.download_button(
+            "📥 Download Populated Template",
+            data=buf,
+            file_name=f"populated_template_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 
-    # 8) Append blocks
-    for idx, (last_day, dist_type) in enumerate(dates_and_types_to_use):
-        base = first_col + width*(idx+1)
-        # headers
-        for r,vals in zip([1,3,5],[hdr1,hdr3,hdr5]):
-            for j,v in enumerate(vals):
-                ws.cell(row=r, column=base+j).value = v
-        # row2 short month range
-        short = f"{last_day.day} {last_day.strftime('%b')} {last_day.year}"
-        ws.cell(row=2, column=base   ).value = f"{short} - {short}"
-        ws.cell(row=2, column=base+1 ).value = "Custom"
-        ws.cell(row=2, column=base+2 ).value = "-"
-        ws.cell(row=2, column=base+3 ).value = datetime.now().year
-        # row4 full month text
-        full = f"{last_day.day} {last_day.strftime('%B')} {last_day.year}"
-        ws.cell(row=4, column=base   ).value = full
-        ws.cell(row=4, column=base+1 ).value = full
-        ws.cell(row=4, column=base+2 ).value = dist_type
-        ws.cell(row=4, column=base+3 ).value = "USD"
-        # payment dates
-        pay_col = base+5
-        dt_val  = datetime(last_day.year,last_day.month,last_day.day)
-        for r in entity_rows:
-            cell_pd = ws.cell(row=r, column=pay_col)
-            cell_pd.value = dt_val
-            cell_pd.number_format = 'm/d/yyyy'
-        # gp formula
-        prom = base+2; let = get_column_letter(prom)
-        s,e = entity_rows[0],entity_rows[-2]
-        ws.cell(row=entity_rows[-1], column=base).value = f"=SUM({let}{s}:{let}{e})"
-        # net formulas
-        g,t,p,a,n = base,base+1,base+2,base+3,base+4
-        for r in entity_rows[:-1]:
-            expr = (f"=SUM({get_column_letter(g)}{r},-"
-                    f"{get_column_letter(t)}{r},"
-                    f"{get_column_letter(a)}{r},-"
-                    f"{get_column_letter(p)}{r})")
-            ws.cell(row=r, column=n).value = expr
-        r_gp = entity_rows[-1]
-        expr_gp = (f"=SUM({get_column_letter(g)}{r_gp},-"
-                  f"{get_column_letter(t)}{r_gp},"
-                  f"{get_column_letter(a)}{r_gp})")
-        ws.cell(row=r_gp, column=n).value = expr_gp
+        st.info("💡 **Next Step:** Use this file as your 'Target Excel File' in the Complete Import File tab")
 
-    # 9) Download
-    buf=io.BytesIO(); wb.save(buf); buf.seek(0)
-    st.download_button("Download Populated Template", data=buf,
-                       file_name="populated_incomplete_filtered.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    st.info("Populated template generated—now mapping entities & filling amounts.")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# Dispatch
-if tab == "Distributions: Complete Import File":
-    run_complete_flow()
-else:
+# Dispatch based on selected tab
+with tab_incomplete:
     run_incomplete_flow()
+
+with tab_complete:
+    run_complete_flow()
