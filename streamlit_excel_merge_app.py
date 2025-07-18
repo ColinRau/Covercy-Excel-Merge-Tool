@@ -9,11 +9,13 @@ from datetime import datetime, date, timedelta
 import json
 import base64
 from math import ceil
+import zipfile
+from openpyxl.utils.exceptions import InvalidFileException
 
 
 # Page config & branding
 st.set_page_config(
-    page_title="Covercy Excel Merge Tool",
+    page_title="Covercy Excel Merge Tool 2.0",
     page_icon="logo.png",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -318,7 +320,7 @@ with col1:
     logo_path = os.path.join(this_dir, "logo.png")
     st.image(logo_path, width=50)
 with col2:
-    st.markdown('<h1 class="title-text">Excel Merge Tool</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="title-text">Excel Merge Tool 2.0</h1>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Tab selection with better styling (show Incomplete Import first by default)
@@ -329,6 +331,22 @@ if tab_incomplete:
     tab = "Distributions: Incomplete Import File"
 else:
     tab = "Distributions: Complete Import File"
+
+# ---------------------------------------------------------------
+# Helper to load Excel workbooks but show a friendly message when
+# Covercy's raw template XML breaks openpyxl. Returns the workbook
+# or None; callers should `return` early if None.
+# ---------------------------------------------------------------
+
+
+def _safe_load_workbook(file_like):
+    """Attempt to load an XLSX; on parse failure, show guidance and return None."""
+    try:
+        return load_workbook(file_like, data_only=False)
+    except (ValueError, InvalidFileException, zipfile.BadZipFile) as e:
+        st.error("⚠️  This template can’t be read as-is. Please open it in Excel, choose “Save As…”, and upload the saved copy.")
+        st.caption(f"Details: {e}")
+        return None
 
 # === Complete flow ===
 def run_complete_flow():
@@ -365,25 +383,71 @@ def run_complete_flow():
         )
     
     # Step 1: File Upload Section
+
+    # --- New mode selector ---------------------------------------------------
+    saved_src_ok = st.session_state.get("shared_source_file") is not None
+    saved_tgt_ok = st.session_state.get("shared_target_file_bytes") is not None
+
+    default_idx = 0 if (saved_src_ok or saved_tgt_ok) else 1
+    file_mode = st.radio(
+        "File selection",
+        ("↪️  Use files from Incomplete flow", "📂 Upload new files"),
+        index=default_idx,
+        horizontal=True,
+        key="comp_file_mode",
+    )
+
+    use_saved = file_mode.startswith("↪️")
     st.markdown('<div class="section-container">', unsafe_allow_html=True)
     st.markdown('<h2><span class="step-indicator">1</span>Upload Files</h2>', unsafe_allow_html=True)
-    
+ 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("##### Source Excel File")
-        st.markdown("<small style='color: #6B7280;'>Your data spreadsheet with distributions</small>", unsafe_allow_html=True)
-        source_file = st.file_uploader("", type=["xlsx","xls"], key="src", label_visibility="collapsed")
-    
+        shared = st.session_state.get("shared_source_file")
+        if use_saved and shared is not None:
+            st.success(f"Using Source File from Incomplete flow: {shared.name}")
+            source_file = shared
+        else:
+            st.markdown("##### Source Excel File")
+            st.markdown("<small style='color: #6B7280;'>Your data spreadsheet with distributions</small>", unsafe_allow_html=True)
+            source_file = st.file_uploader("", type=["xlsx","xls"], key="src", label_visibility="collapsed")
+            if source_file is not None:
+                # Persist for future use
+                st.session_state["shared_source_file"] = source_file
+                # If user is uploading new files, ensure future default switches to saved mode
+                use_saved = False
+ 
     with col2:
-        st.markdown("##### Target Excel File")
-        st.markdown("<small style='color: #6B7280;'>Covercy import template</small>", unsafe_allow_html=True)
-        target_file = st.file_uploader("", type=["xlsx","xls"], key="tgt", label_visibility="collapsed")
-    
+        shared_tgt = st.session_state.get("shared_target_file_bytes")
+        shared_name = st.session_state.get("shared_target_file_name", "populated_template.xlsx")
+
+        if use_saved and shared_tgt is not None:
+            st.success(f"Using Populated Template from Incomplete flow: {shared_name}")
+            target_file = io.BytesIO(shared_tgt)
+            target_file.name = shared_name  # type: ignore
+        else:
+            st.markdown("##### Target Excel File")
+            st.markdown("<small style='color: #6B7280;'>Covercy import template</small>", unsafe_allow_html=True)
+            target_file = st.file_uploader("", type=["xlsx","xls"], key="tgt", label_visibility="collapsed")
+            if target_file is not None:
+                # Persist upload for Complete flow reuse
+                st.session_state["shared_target_file_bytes"] = target_file.read()
+                st.session_state["shared_target_file_name"] = target_file.name
+                target_file.seek(0)
+                use_saved = False
+
     st.markdown('</div>', unsafe_allow_html=True)
     
     if not (source_file and target_file):
         st.info("👆 Please upload both files to continue")
         return
+
+    if source_file is None:
+        st.info("👆 Please upload the source file to continue")
+        return
+
+    # Persist the choice (if user re-uploaded in Complete flow)
+    st.session_state["shared_source_file"] = source_file
 
     # Read source file
     df_source = pd.read_excel(source_file)
@@ -417,7 +481,12 @@ def run_complete_flow():
         st.warning(f"⚠️ {invalid} rows have unparseable dates and will be skipped.")
 
     # Inspect target sheet layout
-    df_raw = pd.read_excel(target_file, header=None)
+    try:
+        df_raw = pd.read_excel(target_file, header=None)
+    except (ValueError, zipfile.BadZipFile, InvalidFileException) as e:
+        st.error("⚠️  This template can’t be read as-is. Open it in Excel, “Save As…”, then upload the saved copy.")
+        st.caption(f"Details: {e}")
+        return
     ent_col = 2
     ent_label_row = df_raw[df_raw[ent_col] == 'Investing Entity'].index[0]
     gp_row        = df_raw[df_raw[ent_col] == 'GP'].index[0]
@@ -487,15 +556,19 @@ def run_complete_flow():
     st.markdown('<div class="section-container">', unsafe_allow_html=True)
     st.markdown('<h2><span class="step-indicator">4</span>Distribution Types</h2>', unsafe_allow_html=True)
 
-    type_mode = st.radio(
+    # Determine default based on presence of saved mapping tokens
+    has_saved_token = bool(st.session_state.get("token_history"))
+    default_radio_idx = 1 if has_saved_token else 0
+
+    type_handling = st.radio(
         "How should distribution types be handled?",
         ("🔲 Single type - Ignore distribution types", "🔷 Multiple types - Match distribution types"),
-        index=1,
+        index=default_radio_idx,
         key="comp_type_mode",
         horizontal=True
     )
 
-    ignore_types = type_mode.startswith("🔲")
+    ignore_types = type_handling.startswith("🔲")
 
     dist_options = [
         "Preferred Return", "Interest", "Profit", "Return of Capital",
@@ -515,16 +588,27 @@ def run_complete_flow():
         type_cols = [c for c in cols if c not in [src_ent, src_dt, src_amt]]
         type_cols_display = ["<No type column>"] + type_cols
 
+        # Pre-select any column remembered from the Incomplete flow
+        default_type_col = st.session_state.get("shared_type_column", "<No type column>")
+        default_idx = type_cols_display.index(default_type_col) if default_type_col in type_cols_display else 0
+
         chosen_type_col = st.selectbox(
             "Select Distribution Type column from source",
             options=type_cols_display,
+            index=default_idx,
             key="comp_dist_type_col",
             help="Leave as '<No type column>' if your source doesn't have distribution types"
         )
+        # Keep the two tabs in sync going forward
+        if chosen_type_col != "<No type column>":
+            st.session_state["shared_type_column"] = chosen_type_col
 
         # Token handling section
         st.markdown("##### Mapping Configuration")
         col1, col2 = st.columns([3, 1])
+
+        # Ensure token_select is always defined
+        token_select = ""
         
         with col1:
             saved_tokens = st.session_state.get("token_history", [])
@@ -664,7 +748,10 @@ def run_complete_flow():
         st.markdown("<small style='color: #6B7280;'>Click below to process your data and create the final import file.</small>", unsafe_allow_html=True)
     
     if st.button("✨ Generate Import File", use_container_width=True, type="primary"):
-        wb = load_workbook(filename=target_file)
+        target_file.seek(0)
+        wb = _safe_load_workbook(target_file)
+        if wb is None:
+            return
         ws = wb[wb.sheetnames[0]]
         unmatched=[]
         
@@ -764,18 +851,40 @@ def run_incomplete_flow():
     with col1:
         st.markdown("##### Source Excel File")
         st.markdown("<small style='color: #6B7280;'>Your data with all distribution dates</small>", unsafe_allow_html=True)
-        source_file = st.file_uploader("", type=["xlsx","xls"], key="inc_src", label_visibility="collapsed")
+
+        uploaded_src = st.file_uploader("", type=["xlsx","xls"], key="inc_src", label_visibility="collapsed")
+
+        if uploaded_src is not None:
+            # User picked a new file – use it and cache for Complete flow
+            source_file = uploaded_src
+            st.session_state["shared_source_file"] = uploaded_src
+        else:
+            shared = st.session_state.get("shared_source_file")
+            if shared is not None:
+                st.info(f"Using previously uploaded file: {shared.name}")
+                source_file = shared
+            else:
+                source_file = None
     
     with col2:
         st.markdown("##### Incomplete Target File")
-        st.markdown("<small style='color: #6B7280;'>Covercy template with single date</small>", unsafe_allow_html=True)
+        st.markdown("<small style='color: #6B7280;'>Covercy template with single date - please Save As before uploading</small>", unsafe_allow_html=True)
         target_file = st.file_uploader("", type=["xlsx","xls"], key="inc_tgt", label_visibility="collapsed")
+
+        # Immediate validation so any parse error is shown here (no scrolling needed)
+        if target_file is not None:
+            wb_test = _safe_load_workbook(io.BytesIO(target_file.getvalue()))
+            if wb_test is None:
+                st.stop()
     
     st.markdown('</div>', unsafe_allow_html=True)
     
     if not (source_file and target_file):
         st.info("👆 Please upload both files to continue")
         return
+
+    # Save source file to share with Complete flow
+    st.session_state["shared_source_file"] = source_file
 
     # Read & parse source
     df_src = pd.read_excel(source_file)
@@ -808,7 +917,9 @@ def run_incomplete_flow():
 
     # Load target workbook
     data = target_file.read()
-    wb = load_workbook(io.BytesIO(data), data_only=False)
+    wb = _safe_load_workbook(io.BytesIO(data))
+    if wb is None:
+        return
     ws = wb.active
 
     # Locate entity rows
@@ -931,6 +1042,9 @@ def run_incomplete_flow():
             key="inc_dist_type_col",
             help="Column that specifies the distribution type for each row"
         )
+        # Store selected column so the Complete flow can pick it up automatically
+        if inc_dist_type_col:
+            st.session_state["shared_type_column"] = inc_dist_type_col
 
         if inc_dist_type_col:
             # --- Build initial mapping df ---
@@ -1072,6 +1186,11 @@ def run_incomplete_flow():
         st.metric("Total Periods", len(dates_and_types_to_use))
     
     if st.button("🚀 Generate Populated Template", use_container_width=True, type="primary"):
+        # Make newest token the default for the Complete flow
+        if 'mapping_token' in locals() and mapping_token and mapping_token != "e30=":
+            st.session_state["comp_mapping_token"] = mapping_token
+            st.session_state.pop("comp_mapping_token_select", None)
+
         # Progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -1136,18 +1255,23 @@ def run_incomplete_flow():
         progress_bar.empty()
         status_text.empty()
         
-        # Save workbook
-        buf=io.BytesIO()
+        # Save workbook to buffer
+        buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
-        
+
+        # Store in session so Complete flow can use automatically
+        file_name = f"populated_template_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        st.session_state["shared_target_file_bytes"] = buf.getvalue()
+        st.session_state["shared_target_file_name"] = file_name
+ 
         st.success("✅ Template populated successfully!")
         
         # Download button
         st.download_button(
             "📥 Download Populated Template",
             data=buf,
-            file_name=f"populated_template_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            file_name=file_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
