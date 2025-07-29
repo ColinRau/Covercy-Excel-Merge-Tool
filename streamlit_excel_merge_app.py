@@ -14,12 +14,16 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 
 # Page config & branding
-st.set_page_config(
-    page_title="Covercy Excel Merge Tool 2.0",
-    page_icon="logo.png",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+try:
+    st.set_page_config(
+        page_title="Covercy Excel Merge Tool 2.0",
+        page_icon="logo.png",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+except Exception:
+    # If the page config is already set by the navigation layer, ignore.
+    pass
 
 # Custom CSS for Covercy branding
 st.markdown(
