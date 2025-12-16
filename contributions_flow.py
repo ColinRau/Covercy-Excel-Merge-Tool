@@ -46,14 +46,17 @@ def run_contributions_flow():
         st.error("❌ Could not locate 'Investing Entity' header in column C")
         return
 
-    # Find GP/footer row: prefer explicit 'GP', otherwise first blank after header
+    # Find GP/footer row: prefer GP-like ('GP' or 'GP/Remaining Funds'), otherwise first blank after header
     try:
-        gp_row = colC_norm.index("GP", ent_label_row + 1)
-    except ValueError:
+        gp_row = next(
+            i for i in range(ent_label_row + 1, len(colC_norm))
+            if colC_norm[i].upper().startswith("GP")
+        )
+    except StopIteration:
         try:
             gp_row = next(i for i in range(ent_label_row + 1, len(colC_norm)) if colC_norm[i] == "")
         except StopIteration:
-            st.error("❌ Could not locate footer (blank row) after 'Investing Entity' header")
+            st.error("❌ Could not locate footer (GP or blank row) after 'Investing Entity' header")
             return
 
     # Convert to 1-based Excel row numbers once and keep them unchanged afterwards

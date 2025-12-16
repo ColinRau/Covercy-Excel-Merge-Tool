@@ -492,8 +492,22 @@ def run_complete_flow():
         st.caption(f"Details: {e}")
         return
     ent_col = 2
-    ent_label_row = df_raw[df_raw[ent_col] == 'Investing Entity'].index[0]
-    gp_row        = df_raw[df_raw[ent_col] == 'GP'].index[0]
+    # Normalize Column C values for robust matching
+    colC_series = df_raw[ent_col].astype(str).str.strip()
+    ent_label_row = colC_series[colC_series == 'Investing Entity'].index[0]
+    # Prefer explicit GP-like footer; fallback to first blank after header
+    footer_slice = colC_series.iloc[ent_label_row + 1 :]
+    footer_norm = footer_slice.fillna('').astype(str).str.strip()
+    gp_like = footer_norm[footer_norm.str.match(r'(?i)^GP(\b|/.*)')]
+    if not gp_like.empty:
+        gp_row = gp_like.index[0]
+    else:
+        blanks = footer_norm[footer_norm == ""]
+        if not blanks.empty:
+            gp_row = blanks.index[0]
+        else:
+            # As a last resort, use the last row so we don't crash
+            gp_row = footer_slice.index[-1]
     ent_rows      = list(range(ent_label_row + 1, gp_row))
     target_entities = [str(df_raw.iat[r, ent_col]).strip() for r in ent_rows]
 
@@ -927,19 +941,60 @@ def run_incomplete_flow():
     ws = wb.active
 
     # Locate entity rows
-    colC = [c.value for c in ws['C']]
-    ent_label_row = colC.index("Investing Entity")+1
-    gp_row        = colC.index("GP")+1
+    colC_raw = [c.value for c in ws['C']]
+    colC_norm = [str(v).strip() if v is not None else "" for v in colC_raw]
+    # Zero-based indices for searching
+    ent_label_row_zb = None
+    try:
+        ent_label_row_zb = colC_norm.index("Investing Entity")
+    except ValueError:
+        st.error("❌ Could not locate 'Investing Entity' header in column C")
+        return
+    # Find footer row (zero-based): prefer GP-like, else first blank
+    try:
+        gp_row_zb = next(
+            i for i in range(ent_label_row_zb + 1, len(colC_norm))
+            if colC_norm[i].upper().startswith("GP")
+        )
+    except StopIteration:
+        try:
+            gp_row_zb = next(
+                i for i in range(ent_label_row_zb + 1, len(colC_norm))
+                if colC_norm[i] == ""
+            )
+        except StopIteration:
+            st.error("❌ Could not locate footer (GP or blank row) after 'Investing Entity'")
+            return
+    # Convert to 1-based Excel row numbers
+    ent_label_row = ent_label_row_zb + 1
+    gp_row        = gp_row_zb + 1
     entity_rows   = list(range(ent_label_row+1, gp_row+1))
 
     # Copy first block headers
-    first_col, width = 6, 7
+    # Determine first block start dynamically:
+    # The header row that contains 'Last Day' is two rows above the entity header.
+    width = 7
+    last_day_row = max(1, ent_label_row - 2)
+    last_day_cols = [
+        j for j in range(1, ws.max_column + 1)
+        if str(ws.cell(row=last_day_row, column=j).value).strip() == "Last Day"
+    ]
+    if last_day_cols:
+        # Amounts start one column to the left of 'Last Day'
+        first_col = max(1, last_day_cols[0] - 1)
+    else:
+        # Fallback to legacy starting column (F)
+        first_col = 6
     hdr1 = [ws.cell(row=1, column=c).value for c in range(first_col, first_col+width)]
     hdr3 = [ws.cell(row=3, column=c).value for c in range(first_col, first_col+width)]
     hdr5 = [ws.cell(row=5, column=c).value for c in range(first_col, first_col+width)]
 
     # Build new-dates list
-    existing = ws.cell(row=4, column=first_col+1).value
+    # Use the date directly under the first detected 'Last Day' if available
+    if last_day_cols:
+        existing = ws.cell(row=last_day_row + 1, column=last_day_cols[0]).value
+    else:
+        existing = ws.cell(row=4, column=first_col+1).value
     uniq = df_src['parsed_date'].unique()
     new_dates = sorted([d for d in uniq if pd.notna(d) and d != existing])
 
