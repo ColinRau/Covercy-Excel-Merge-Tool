@@ -498,7 +498,7 @@ def run_complete_flow():
     # Prefer explicit GP-like footer; fallback to first blank after header
     footer_slice = colC_series.iloc[ent_label_row + 1 :]
     footer_norm = footer_slice.fillna('').astype(str).str.strip()
-    gp_like = footer_norm[footer_norm.str.match(r'(?i)^GP(\b|/.*)')]
+    gp_like = footer_norm[footer_norm.str.fullmatch(r'(?i)GP/Remaining Funds')]
     if not gp_like.empty:
         gp_row = gp_like.index[0]
     else:
@@ -950,11 +950,11 @@ def run_incomplete_flow():
     except ValueError:
         st.error("❌ Could not locate 'Investing Entity' header in column C")
         return
-    # Find footer row (zero-based): prefer GP-like, else first blank
+    # Find footer row (zero-based): prefer explicit "GP/Remaining Funds", else first blank
     try:
         gp_row_zb = next(
             i for i in range(ent_label_row_zb + 1, len(colC_norm))
-            if colC_norm[i].upper().startswith("GP")
+            if colC_norm[i].strip().lower() == "gp/remaining funds"
         )
     except StopIteration:
         try:
@@ -963,7 +963,7 @@ def run_incomplete_flow():
                 if colC_norm[i] == ""
             )
         except StopIteration:
-            st.error("❌ Could not locate footer (GP or blank row) after 'Investing Entity'")
+            st.error("❌ Could not locate footer (GP/Remaining Funds or blank row) after 'Investing Entity'")
             return
     # Convert to 1-based Excel row numbers
     ent_label_row = ent_label_row_zb + 1

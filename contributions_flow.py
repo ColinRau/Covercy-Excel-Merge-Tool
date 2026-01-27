@@ -232,17 +232,19 @@ def run_contrib_complete_flow():
         st.error("❌ Could not locate 'Investing Entity' header in column C")
         return
 
-    # Find GP/footer row: prefer GP-like ('GP' or 'GP/Remaining Funds'), otherwise first blank after header
-    try:
-        gp_row = next(
-            i for i in range(ent_label_row + 1, len(colC_norm))
-            if colC_norm[i].upper().startswith("GP")
-        )
-    except StopIteration:
+    # Find footer row: prefer "Total IE" marker in column A, otherwise first blank after header in column C.
+    total_ie_row_1b = _find_total_ie_row(ws)
+    gp_row = None  # zero-based index into colC_norm
+    if total_ie_row_1b is not None:
+        total_ie_row_zb = total_ie_row_1b - 1
+        if total_ie_row_zb > ent_label_row:
+            gp_row = total_ie_row_zb
+
+    if gp_row is None:
         try:
             gp_row = next(i for i in range(ent_label_row + 1, len(colC_norm)) if colC_norm[i] == "")
         except StopIteration:
-            st.error("❌ Could not locate footer (GP or blank row) after 'Investing Entity' header")
+            st.error("❌ Could not locate footer ('Total IE' in column A, or a blank row) after 'Investing Entity' header")
             return
 
     # Convert to 1-based Excel row numbers once and keep them unchanged afterwards
@@ -552,13 +554,19 @@ def run_contrib_incomplete_flow():
     except ValueError:
         st.error("❌ Could not locate 'Investing Entity' header in column C")
         return
-    try:
-        gp_row_zb = next(i for i in range(ent_label_row_zb + 1, len(colC_norm)) if colC_norm[i].upper().startswith("GP"))
-    except StopIteration:
+    # Prefer "Total IE" marker in column A; fallback to first blank in column C.
+    total_ie_row_1b = _find_total_ie_row(ws)
+    gp_row_zb = None
+    if total_ie_row_1b is not None:
+        total_ie_row_zb = total_ie_row_1b - 1
+        if total_ie_row_zb > ent_label_row_zb:
+            gp_row_zb = total_ie_row_zb
+
+    if gp_row_zb is None:
         try:
             gp_row_zb = next(i for i in range(ent_label_row_zb + 1, len(colC_norm)) if colC_norm[i] == "")
         except StopIteration:
-            st.error("❌ Could not locate footer (GP or blank row) after 'Investing Entity'")
+            st.error("❌ Could not locate footer ('Total IE' in column A, or a blank row) after 'Investing Entity'")
             return
     ent_label_row = ent_label_row_zb + 1
     gp_row = gp_row_zb + 1
