@@ -6,7 +6,12 @@ import difflib
 import json
 import copy
 from typing import Any, Dict, List, Optional, Tuple
-from io_helpers import _safe_load_workbook, patch_xlsx_workbook_xml_from_template
+from io_helpers import (
+    _safe_load_workbook,
+    build_normalized_entity_index,
+    patch_xlsx_workbook_xml_from_template,
+    suggest_target_entity,
+)
 from openpyxl.utils import get_column_letter
 
 
@@ -297,9 +302,15 @@ def run_contrib_complete_flow():
 
     # --- Section 3: Entity mapping --------------------------------------------
     unique_src = df_source[src_ent].dropna().astype(str).unique().tolist()
-    map_df = pd.DataFrame({'source_entity': unique_src})
-    map_df['suggestion'] = map_df['source_entity'].apply(lambda x: (difflib.get_close_matches(x, target_entities, n=1, cutoff=0.6) or [""])[0])
-    map_df['target_entity'] = map_df['suggestion']
+    map_df = pd.DataFrame({"source_entity": unique_src})
+    target_index = build_normalized_entity_index(target_entities)
+    sugg_pairs = map_df["source_entity"].apply(
+        lambda x: suggest_target_entity(
+            x, target_entities=target_entities, target_index=target_index, cutoff=0.6
+        )
+    )
+    map_df[["target_entity", "match_type"]] = pd.DataFrame(sugg_pairs.tolist(), index=map_df.index)
+    map_df = map_df[["source_entity", "match_type", "target_entity"]]
 
     st.markdown("##### Map source entities to template entities")
     edited = st.data_editor(
@@ -309,8 +320,9 @@ def run_contrib_complete_flow():
                 "Source Entity",
                 disabled=True,
             ),
-            'suggestion': st.column_config.TextColumn(
-                "Suggested Match",
+            "match_type": st.column_config.TextColumn(
+                "Match Type",
+                help="How the Target Entity default was chosen (Exact/Fuzzy/None/Ambiguous)",
                 disabled=True,
             ),
             'target_entity': st.column_config.SelectboxColumn(
