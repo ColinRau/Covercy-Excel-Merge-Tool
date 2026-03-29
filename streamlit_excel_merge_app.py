@@ -8,9 +8,11 @@ import os
 from datetime import datetime, date, timedelta
 import json
 import base64
+import html
 from math import ceil
 import zipfile
 from openpyxl.utils.exceptions import InvalidFileException
+from io_helpers import build_normalized_entity_index, suggest_target_entity
 
 
 # Page config & branding
@@ -455,6 +457,9 @@ def run_complete_flow():
 
     # Read source file
     df_source = pd.read_excel(source_file)
+    # Stable per-row identifier (needed for Advanced duplicate splitting)
+    if "_src_row_id" not in df_source.columns:
+        df_source["_src_row_id"] = range(len(df_source))
     
     # Step 2: Data Preview & Column Selection
     st.markdown('<div class="section-container">', unsafe_allow_html=True)
@@ -536,11 +541,15 @@ def run_complete_flow():
     st.markdown('<h2><span class="step-indicator">3</span>Map Entities</h2>', unsafe_allow_html=True)
     
     unique_src = df_source[src_ent].dropna().astype(str).unique().tolist()
-    map_df = pd.DataFrame({'source_entity': unique_src})
-    map_df['suggestion_1'] = map_df['source_entity'].apply(
-        lambda x: (difflib.get_close_matches(x, target_entities, n=1, cutoff=0.6) or [""])[0]
+    map_df = pd.DataFrame({"source_entity": unique_src})
+    target_index = build_normalized_entity_index(target_entities)
+    sugg_pairs = map_df["source_entity"].apply(
+        lambda x: suggest_target_entity(
+            x, target_entities=target_entities, target_index=target_index, cutoff=0.6
+        )
     )
-    map_df['target_entity'] = map_df['suggestion_1']
+    map_df[["target_entity", "match_type"]] = pd.DataFrame(sugg_pairs.tolist(), index=map_df.index)
+    map_df = map_df[["source_entity", "match_type", "target_entity"]]
 
     st.markdown("##### Match source entities to target entities")
     st.markdown("<small style='color: #6B7280;'>Review and adjust the suggested mappings below. Only mapped entities will be included in the final import.</small>", unsafe_allow_html=True)
@@ -553,9 +562,9 @@ def run_complete_flow():
                 help="Entity names from your source file",
                 disabled=True,
             ),
-            'suggestion_1': st.column_config.TextColumn(
-                "Suggested Match",
-                help="Our best guess based on name similarity",
+            "match_type": st.column_config.TextColumn(
+                "Match Type",
+                help="How the Target Entity default was chosen (Exact/Fuzzy/None/Ambiguous)",
                 disabled=True,
             ),
             'target_entity': st.column_config.SelectboxColumn(
@@ -726,13 +735,17 @@ def run_complete_flow():
     )[src_amt].apply(list).reset_index(name='amounts')
     dups = dup_groups[dup_groups['amounts'].apply(len) > 1]
     chosen = {}
+    # Advanced duplicate splitting state (default off)
+    adv_enabled = bool(st.session_state.get("dist_adv_split_enabled", False))
+    # (entity, date, type) -> list[slot_total], slot_index is 0-based in the list
+    adv_slot_sums: dict[tuple[str, object, str], list[float]] = {}
 
     if not dups.empty:
         st.markdown('<div class="section-container">', unsafe_allow_html=True)
         st.markdown('<h2><span class="step-indicator">5</span>Resolve Duplicates</h2>', unsafe_allow_html=True)
         st.markdown("<small style='color: #6B7280;'>Multiple amounts found for the same entity/date/type combination. Choose how to handle each:</small>", unsafe_allow_html=True)
 
-        if st.button("🔢 Sum All Duplicates", use_container_width=True):
+        if st.button("🔢 Sum All Duplicates", use_container_width=True, disabled=adv_enabled, key="dist_sum_dups_default"):
             for _, row in dups.iterrows():
                 key = f"dup_{row['mapped_entity']}_{row['parsed_date']}_{row['mapped_type']}"
                 st.session_state[key] = 'SUM'
@@ -749,10 +762,157 @@ def run_complete_flow():
                 f"**{ent}** on {dt}{type_str}", 
                 options, 
                 key=key,
-                horizontal=True
+                horizontal=True,
+                disabled=adv_enabled,
             )
             sel = st.session_state[key]
             chosen[(ent, dt, typ)] = sum(amts) if sel == 'SUM' else float(sel)
+
+        # --- Advanced: split duplicates into multiple periods -------------------
+        with st.expander("Advanced (optional): split duplicate payments into separate period blocks", expanded=False):
+            adv_enabled = st.checkbox(
+                "Enable advanced splitting",
+                value=adv_enabled,
+                key="dist_adv_split_enabled",
+                help="When enabled, you can allocate each duplicate payment into Slot 1..N. Slots become separate period blocks (same date/type).",
+            )
+
+            if adv_enabled:
+                st.info("Advanced splitting is ON — normal duplicate selections above will be ignored when generating.")
+                st.markdown(
+                    "\n".join(
+                        [
+                            "- Each row is one payment from your source file for this investor/date/type.",
+                            "- Slot 1..N correspond to separate period blocks (columns) for the same date/type.",
+                            "- Payments assigned to the same slot are summed into that slot.",
+                        ]
+                    )
+                )
+                st.caption(
+                    "Tip: use “Split all duplicates” to get one payment per slot, then adjust a few investors as needed."
+                )
+
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if st.button("Split all duplicates (one payment per slot)", use_container_width=True, key="dist_adv_split_all"):
+                        st.session_state["dist_adv_default_mode"] = "split"
+                with col_b:
+                    if st.button("Sum all duplicates (everything into Slot 1)", use_container_width=True, key="dist_adv_sum_all"):
+                        st.session_state["dist_adv_default_mode"] = "sum"
+
+                default_mode = st.session_state.get("dist_adv_default_mode", "split")
+
+                # Build per-group UI using stable per-payment identifiers.
+                # Use dup_src for authoritative rows.
+                for _, row in dups.iterrows():
+                    ent, dt, typ = row["mapped_entity"], row["parsed_date"], row["mapped_type"]
+                    show_type_badge = (not ignore_types) and bool(typ)
+
+                    g = dup_src[
+                        (dup_src["mapped_entity"] == ent)
+                        & (dup_src["parsed_date"] == dt)
+                        & (dup_src["mapped_type"] == typ)
+                    ][["_src_row_id", src_amt]].copy()
+                    g = g.sort_values("_src_row_id")
+                    g["_payment"] = range(1, len(g) + 1)
+                    g = g.rename(columns={src_amt: "amount", "_src_row_id": "source_row"})
+
+                    group_key = f"dist_adv_{ent}_{dt}_{typ}"
+                    slots_key = f"{group_key}_slots"
+                    assign_key = f"{group_key}_assign"
+
+                    # Initialize slot count and assignment map
+                    if slots_key not in st.session_state:
+                        st.session_state[slots_key] = len(g) if default_mode == "split" else 1
+                    if assign_key not in st.session_state:
+                        if default_mode == "split":
+                            st.session_state[assign_key] = {int(r): int(i + 1) for i, r in enumerate(g["source_row"].tolist())}
+                        else:
+                            st.session_state[assign_key] = {int(r): 1 for r in g["source_row"].tolist()}
+
+                    st.markdown(f"**{ent}** — {dt}")
+                    if show_type_badge:
+                        safe_typ = html.escape(str(typ))
+                        st.markdown(
+                            f"<span style=\"display:inline-block; padding:4px 10px; border-radius:999px; "
+                            f"border:1px solid rgba(91,91,255,0.35); background: rgba(91,91,255,0.12); "
+                            f"font-weight:600; font-size:0.9rem;\">Type: {safe_typ}</span>",
+                            unsafe_allow_html=True,
+                        )
+                    btn_c1, btn_c2, btn_c3 = st.columns([1, 1, 2])
+                    with btn_c1:
+                        if st.button("Split each", key=f"{group_key}_split_each"):
+                            st.session_state[slots_key] = len(g)
+                            st.session_state[assign_key] = {int(r): int(i + 1) for i, r in enumerate(g["source_row"].tolist())}
+                    with btn_c2:
+                        if st.button("All to Slot 1", key=f"{group_key}_all_slot1"):
+                            st.session_state[slots_key] = 1
+                            st.session_state[assign_key] = {int(r): 1 for r in g["source_row"].tolist()}
+                    with btn_c3:
+                        if st.button("Add slot", key=f"{group_key}_add_slot"):
+                            st.session_state[slots_key] = int(st.session_state[slots_key]) + 1
+
+                    slot_count = int(st.session_state[slots_key])
+                    assign_map: dict[int, int] = dict(st.session_state[assign_key])
+
+                    editor_df = g.copy()
+                    editor_df["slot"] = editor_df["source_row"].map(lambda r: int(assign_map.get(int(r), 1)))
+
+                    edited_df = st.data_editor(
+                        editor_df[["_payment", "amount", "source_row", "slot"]],
+                        column_config={
+                            "_payment": st.column_config.NumberColumn("Payment #", disabled=True),
+                            "amount": st.column_config.NumberColumn("Amount", disabled=True),
+                            "source_row": st.column_config.NumberColumn("Source row", disabled=True),
+                            "slot": st.column_config.SelectboxColumn(
+                                "Slot",
+                                options=list(range(1, slot_count + 1)),
+                                required=True,
+                                help="Payments assigned to the same slot will be summed into that period block.",
+                            ),
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        key=f"{group_key}_editor",
+                    )
+
+                    # Persist assignment
+                    new_assign = {int(r): int(s) for r, s in zip(edited_df["source_row"].tolist(), edited_df["slot"].tolist())}
+                    st.session_state[assign_key] = new_assign
+
+                    # Preview totals and record slot sums for generation step
+                    slot_totals = (
+                        edited_df.groupby("slot", as_index=True)["amount"].sum().sort_index().to_dict()
+                    )
+                    if slot_totals:
+                        slot_counts = (
+                            edited_df.groupby("slot", as_index=True)["amount"].count().sort_index().to_dict()
+                        )
+                        st.caption("Slot summary")
+
+                        def _format_money(x: float) -> str:
+                            try:
+                                return f"${x:,.2f}"
+                            except Exception:
+                                return str(x)
+
+                        # Render metric tiles (4 per row) so this doesn't look like another table.
+                        slot_items = sorted(slot_totals.items(), key=lambda kv: kv[0])
+                        for i in range(0, len(slot_items), 4):
+                            row_items = slot_items[i : i + 4]
+                            cols = st.columns(len(row_items))
+                            for (slot_num, total_amt), col in zip(row_items, cols):
+                                n_pay = int(slot_counts.get(slot_num, 0))
+                                delta = f"{n_pay} payment" + ("" if n_pay == 1 else "s")
+                                col.metric(
+                                    label=f"Slot {slot_num}",
+                                    value=_format_money(float(total_amt)),
+                                    delta=delta,
+                                )
+                        max_slot = max(slot_totals.keys())
+                        adv_slot_sums[(ent, dt, typ)] = [float(slot_totals.get(i, 0.0)) for i in range(1, max_slot + 1)]
+                    else:
+                        adv_slot_sums[(ent, dt, typ)] = [0.0]
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -780,24 +940,249 @@ def run_complete_flow():
         total_entities = len(target_entities)
         processed = 0
         
-        for r,ent in zip(ent_rows, target_entities):
-            for (dist_date, dist_type), col_idx in date_type_map.items():
-                if pd.isna(dist_date):
+        if not adv_enabled:
+            # --- Default (protected) behavior: unchanged -----------------------
+            for r, ent in zip(ent_rows, target_entities):
+                for (dist_date, dist_type), col_idx in date_type_map.items():
+                    if pd.isna(dist_date):
+                        continue
+                    m = df_source[
+                        (df_source['mapped_entity'] == ent) &
+                        (df_source['parsed_date'] == dist_date) &
+                        (df_source['mapped_type'] == dist_type)
+                    ]
+                    if not m.empty:
+                        amt = chosen.get((ent, dist_date, dist_type), m[src_amt].iloc[0])
+                        ws.cell(row=r + 1, column=col_idx).value = amt
+                    else:
+                        unmatched.append((ent, dist_date, dist_type))
+                
+                processed += 1
+                progress_bar.progress(processed / total_entities)
+                status_text.text(f"Processing entity {processed}/{total_entities}...")
+        else:
+            # --- Advanced behavior: splitting + dynamic blocks + padding --------
+            placeholder_date = date(2040, 1, 1)
+            placeholder_type = "Preferred Return"
+            width = 7
+
+            def _parse_date(val):
+                try:
+                    d = pd.to_datetime(val, errors="coerce")
+                    if pd.isna(d):
+                        return None
+                    return d.date()
+                except Exception:
+                    return None
+
+            # Locate entity header and last-day marker row in the workbook
+            colC_vals = [str(ws.cell(row=r, column=3).value).strip() if ws.cell(row=r, column=3).value is not None else "" for r in range(1, ws.max_row + 1)]
+            try:
+                ent_label_row_1b = colC_vals.index("Investing Entity") + 1
+            except ValueError:
+                st.error("❌ Could not locate 'Investing Entity' header in column C (needed for Advanced splitting).")
+                return
+            last_day_row_1b = max(1, ent_label_row_1b - 2)
+
+            # Footer row: prefer explicit GP marker, else first blank after entity header
+            gp_row_1b = None
+            for r in range(ent_label_row_1b + 1, ws.max_row + 1):
+                v = ws.cell(row=r, column=3).value
+                s = str(v).strip().lower() if v is not None else ""
+                if s == "gp/remaining funds":
+                    gp_row_1b = r
+                    break
+            if gp_row_1b is None:
+                for r in range(ent_label_row_1b + 1, ws.max_row + 1):
+                    v = ws.cell(row=r, column=3).value
+                    s = str(v).strip() if v is not None else ""
+                    if s == "":
+                        gp_row_1b = r
+                        break
+            if gp_row_1b is None:
+                gp_row_1b = ws.max_row
+
+            entity_rows_1b = list(range(ent_label_row_1b + 1, gp_row_1b + 1))
+
+            # Find all 'Last Day' marker columns in the header row
+            last_day_cols_1b = [
+                c for c in range(1, ws.max_column + 1)
+                if str(ws.cell(row=last_day_row_1b, column=c).value).strip() == "Last Day"
+            ]
+            if not last_day_cols_1b:
+                st.error("❌ Could not locate any 'Last Day' header markers (needed for Advanced splitting).")
+                return
+
+            first_col = max(1, last_day_cols_1b[0] - 1)  # amount column base
+
+            hdr1 = [ws.cell(row=1, column=first_col + j).value for j in range(width)]
+            hdr3 = [ws.cell(row=3, column=first_col + j).value for j in range(width)]
+            hdr5 = [ws.cell(row=5, column=first_col + j).value for j in range(width)]
+
+            def _write_block_at_base(*, base_col: int, last_day: date, dist_type: str):
+                # Headers (rows 1,3,5)
+                for r, vals in zip([1, 3, 5], [hdr1, hdr3, hdr5]):
+                    for j, v in enumerate(vals):
+                        ws.cell(row=r, column=base_col + j).value = v
+
+                # Row 2: date range
+                short = f"{last_day.day} {last_day.strftime('%b')} {last_day.year}"
+                ws.cell(row=2, column=base_col).value = f"{short} - {short}"
+                ws.cell(row=2, column=base_col + 1).value = "Custom"
+                ws.cell(row=2, column=base_col + 2).value = "-"
+                ws.cell(row=2, column=base_col + 3).value = datetime.now().year
+
+                # Row 4: full date and type
+                full = f"{last_day.day} {last_day.strftime('%B')} {last_day.year}"
+                ws.cell(row=4, column=base_col).value = full
+                ws.cell(row=4, column=base_col + 1).value = full
+                ws.cell(row=4, column=base_col + 2).value = dist_type
+                ws.cell(row=4, column=base_col + 3).value = "USD"
+
+                # Payment dates column
+                pay_col = base_col + 5
+                dt_val = datetime(last_day.year, last_day.month, last_day.day)
+                for rr in entity_rows_1b:
+                    cell_pd = ws.cell(row=rr, column=pay_col)
+                    cell_pd.value = dt_val
+                    cell_pd.number_format = 'm/d/yyyy'
+
+                # GP formula (copied from Incomplete flow)
+                prom = base_col + 2
+                let = get_column_letter(prom)
+                s, e = entity_rows_1b[0], entity_rows_1b[-2] if len(entity_rows_1b) >= 2 else entity_rows_1b[0]
+                ws.cell(row=entity_rows_1b[-1], column=base_col).value = f"=SUM({let}{s}:{let}{e})"
+
+                # Net formulas
+                g_col, t_col, p_col, a_col, n_col = base_col, base_col + 1, base_col + 2, base_col + 3, base_col + 4
+                for rr in entity_rows_1b[:-1]:
+                    expr = (f"=SUM({get_column_letter(g_col)}{rr},-"
+                            f"{get_column_letter(t_col)}{rr},"
+                            f"{get_column_letter(a_col)}{rr},-"
+                            f"{get_column_letter(p_col)}{rr})")
+                    ws.cell(row=rr, column=n_col).value = expr
+                rr_gp = entity_rows_1b[-1]
+                expr_gp = (f"=SUM({get_column_letter(g_col)}{rr_gp},-"
+                           f"{get_column_letter(t_col)}{rr_gp},"
+                           f"{get_column_letter(a_col)}{rr_gp})")
+                ws.cell(row=rr_gp, column=n_col).value = expr_gp
+
+            # Scan blocks and build map (date,type)->[base_cols]
+            blocks = []
+            for c in last_day_cols_1b:
+                base_col = c - 1
+                d = _parse_date(ws.cell(row=last_day_row_1b + 1, column=c).value)
+                t1 = ws.cell(row=last_day_row_1b + 1, column=c + 1).value if (c + 1) <= ws.max_column else ""
+                t2 = ws.cell(row=last_day_row_1b + 1, column=c + 2).value if (c + 2) <= ws.max_column else ""
+                t_raw = str(t1).strip() if t1 is not None else ""
+                if t_raw == "" or t_raw == "-":
+                    t_raw = str(t2).strip() if t2 is not None else ""
+                blocks.append({"base": base_col, "date": d, "type": t_raw or ""})
+
+            blocks = sorted(blocks, key=lambda b: b["base"])
+            placeholder_bases = [b["base"] for b in blocks if b["date"] == placeholder_date and b["type"] == placeholder_type]
+
+            period_map: dict[tuple[date, str], list[int]] = {}
+            for b in blocks:
+                if b["date"] is None:
                     continue
-                m = df_source[
-                    (df_source['mapped_entity'] == ent) &
-                    (df_source['parsed_date'] == dist_date) &
-                    (df_source['mapped_type'] == dist_type)
-                ]
-                if not m.empty:
-                    amt = chosen.get((ent, dist_date, dist_type), m[src_amt].iloc[0])
-                    ws.cell(row=r + 1, column=col_idx).value = amt
-                else:
-                    unmatched.append((ent, dist_date, dist_type))
-            
-            processed += 1
-            progress_bar.progress(processed / total_entities)
-            status_text.text(f"Processing entity {processed}/{total_entities}...")
+                key = (b["date"], b["type"])
+                period_map.setdefault(key, []).append(int(b["base"]))
+
+            # Determine required slots per (date,type)
+            required_slots: dict[tuple[date, str], int] = {}
+            for ent in target_entities:
+                for (dist_date, dist_type), _col_idx in date_type_map.items():
+                    if pd.isna(dist_date):
+                        continue
+                    # slot sums from UI if duplicates; else default to first row amount
+                    slot_vals = adv_slot_sums.get((ent, dist_date, dist_type))
+                    if slot_vals is None:
+                        m = df_source[
+                            (df_source['mapped_entity'] == ent) &
+                            (df_source['parsed_date'] == dist_date) &
+                            (df_source['mapped_type'] == dist_type)
+                        ]
+                        if not m.empty:
+                            slot_vals = [float(m[src_amt].iloc[0])]
+                        else:
+                            slot_vals = [0.0]
+                    required_slots[(dist_date, dist_type)] = max(required_slots.get((dist_date, dist_type), 1), len(slot_vals))
+
+            # Ensure enough blocks per (date,type) by reusing placeholders first, then appending
+            total_blocks = len(blocks)
+            for (dist_date, dist_type), need in required_slots.items():
+                have = len(period_map.get((dist_date, dist_type), []))
+                missing = max(0, need - have)
+                while missing > 0:
+                    if placeholder_bases:
+                        base_col = int(placeholder_bases.pop(0))
+                        _write_block_at_base(base_col=base_col, last_day=dist_date, dist_type=dist_type)
+                        period_map.setdefault((dist_date, dist_type), []).append(base_col)
+                        missing -= 1
+                    else:
+                        # Append a new block at the end
+                        base_col = first_col + width * total_blocks
+                        _write_block_at_base(base_col=base_col, last_day=dist_date, dist_type=dist_type)
+                        period_map.setdefault((dist_date, dist_type), []).append(base_col)
+                        total_blocks += 1
+                        missing -= 1
+
+            # Auto-pad placeholders for the 56% heuristic (after split blocks)
+            real_block_count = 0
+            for (d, t), bases in period_map.items():
+                if d == placeholder_date and t == placeholder_type:
+                    continue
+                real_block_count += len(bases)
+
+            total_needed = ceil(real_block_count / 0.56) if real_block_count else 0
+            # total_blocks tracks the number of period blocks currently present (including placeholders).
+            current_total_blocks = total_blocks
+            extra_needed = max(0, total_needed - current_total_blocks)
+            for _ in range(extra_needed):
+                base_col = first_col + width * total_blocks
+                _write_block_at_base(base_col=base_col, last_day=placeholder_date, dist_type=placeholder_type)
+                placeholder_bases.append(base_col)
+                total_blocks += 1
+
+            # Sort bases left-to-right for deterministic slot->column mapping
+            for k in period_map.keys():
+                period_map[k] = sorted(period_map[k])
+
+            # Fill amounts by slot index (slot i -> period_map[(date,type)][i])
+            for r, ent in zip(ent_rows, target_entities):
+                for (dist_date, dist_type), _col_idx in date_type_map.items():
+                    if pd.isna(dist_date):
+                        continue
+                    bases = period_map.get((dist_date, dist_type), [])
+                    if not bases:
+                        unmatched.append((ent, dist_date, dist_type))
+                        continue
+
+                    slot_vals = adv_slot_sums.get((ent, dist_date, dist_type))
+                    if slot_vals is None:
+                        m = df_source[
+                            (df_source['mapped_entity'] == ent) &
+                            (df_source['parsed_date'] == dist_date) &
+                            (df_source['mapped_type'] == dist_type)
+                        ]
+                        if not m.empty:
+                            slot_vals = [float(m[src_amt].iloc[0])]
+                        else:
+                            slot_vals = []
+
+                    if not slot_vals:
+                        unmatched.append((ent, dist_date, dist_type))
+                        continue
+
+                    for i, v in enumerate(slot_vals):
+                        if i >= len(bases):
+                            break
+                        ws.cell(row=r + 1, column=int(bases[i])).value = v
+                
+                processed += 1
+                progress_bar.progress(processed / total_entities)
+                status_text.text(f"Processing entity {processed}/{total_entities}...")
         
         progress_bar.empty()
         status_text.empty()
