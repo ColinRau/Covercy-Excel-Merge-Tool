@@ -75,8 +75,13 @@ def _append_contrib_period_blocks(
     periods: List[Tuple[date, str]],
     width: int = 3,
     copy_row_end: Optional[int] = None,
+    on_progress: Optional[Any] = None,
 ) -> None:
-    """Append 3-col contribution blocks, copying the base block and setting date/name/investment-date."""
+    """Append 3-col contribution blocks, copying the base block and setting date/name/investment-date.
+
+    `on_progress` (optional) is called after each block is appended:
+        on_progress(done: int, total: int, period_date: date, period_name: str) -> None
+    """
     if copy_row_end is None:
         copy_row_end = total_ie_row
 
@@ -89,6 +94,7 @@ def _append_contrib_period_blocks(
     if entity_rows:
         base_inv_number_format = ws.cell(row=entity_rows[0], column=base_marker + 2).number_format or base_inv_number_format
 
+    total = len(periods)
     for idx, (d, nm) in enumerate(periods):
         new_marker = last_marker + width * (idx + 1)
 
@@ -137,6 +143,13 @@ def _append_contrib_period_blocks(
         # of the amount-raised total. Clear them for generated blocks.
         ws.cell(row=total_ie_row, column=new_marker + 1).value = None
         ws.cell(row=total_ie_row, column=new_marker + 2).value = None
+
+        if on_progress is not None:
+            try:
+                on_progress(idx + 1, total, d, nm)
+            except Exception:
+                # UI-only; never fail generation due to progress callback.
+                pass
 
 
 def _find_amount_raised_marker_cols(ws, *, min_col: int = 6) -> List[int]:
@@ -750,6 +763,15 @@ def run_contrib_incomplete_flow():
     st.write(f"Will generate **{len(periods)}** new period blocks.")
 
     if st.button("🚀 Generate Populated Template", use_container_width=True, type="primary", key="contrib_inc_generate"):
+        progress = st.progress(0.0)
+        status_text = st.empty()
+        started_at = datetime.now()
+
+        def _on_progress(done: int, total: int, d: date, nm: str) -> None:
+            progress.progress(done / max(total, 1))
+            elapsed_s = (datetime.now() - started_at).total_seconds()
+            status_text.text(f"Adding blocks: {done}/{total}  •  {nm}  •  {elapsed_s:,.1f}s elapsed")
+
         copy_row_end = max(total_ie_row, max(entity_rows) if entity_rows else total_ie_row)
         _append_contrib_period_blocks(
             ws,
@@ -760,11 +782,17 @@ def run_contrib_incomplete_flow():
             periods=periods,
             width=width,
             copy_row_end=copy_row_end,
+            on_progress=_on_progress,
         )
 
+        status_text.text("Saving workbook…")
         buf = io.BytesIO()
         wb.save(buf)
         generated_bytes = buf.getvalue()
+
+        progress.progress(1.0)
+        status_text.empty()
+        progress.empty()
 
         # Preserve Covercy workbook-level metadata/extensions by restoring xl/workbook.xml
         # from the original Covercy template.
